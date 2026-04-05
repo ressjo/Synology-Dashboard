@@ -1,0 +1,50 @@
+{% for c in containers %}
+{% if c.get('error') %}
+<tr><td colspan="8" class="text-danger">Fehler: {{ c.error }}</td></tr>
+{% else %}
+<tr>
+  <td>
+    <span class="status-dot status-{{ c.state }}"></span>
+    <span class="status-text">{{ c.status }}</span>
+  </td>
+  <td class="mono">{{ c.name }}</td>
+  <td class="mono text-muted text-small">{{ c.image }}</td>
+  <td id="cpu-{{ c.id }}" class="mono text-muted text-small">
+    {% if c.state == 'running' %}…{% else %}—{% endif %}
+  </td>
+  <td id="mem-{{ c.id }}" class="mono text-muted text-small">
+    {% if c.state == 'running' %}…{% else %}—{% endif %}
+  </td>
+  <td class="mono text-small">{{ c.ports }}</td>
+  <td class="text-muted text-small">{{ c.created }}</td>
+  <td>
+    <div class="action-buttons">
+      {% if c.state != 'running' %}
+      <button class="btn btn-sm btn-ok"
+              hx-post="/api/containers/{{ c.id }}/start"
+              hx-confirm="Container '{{ c.name }}' starten?"
+              hx-on::after-request="refreshContainers()">
+        <i data-feather="play"></i>
+      </button>
+      {% endif %}
+      {% if c.state == 'running' %}
+      <button class="btn btn-sm btn-warning"
+              hx-post="/api/containers/{{ c.id }}/stop"
+              hx-confirm="Container '{{ c.name }}' stoppen?"
+              hx-on::after-request="refreshContainers()">
+        <i data-feather="square"></i>
+      </button>
+      <button class="btn btn-sm btn-ghost"
+              hx-post="/api/containers/{{ c.id }}/restart"
+              hx-confirm="Container '{{ c.name }}' neu starten?"
+              hx-on::after-request="refreshContainers()">
+        <i data-feather="refresh-cw"></i>
+      </button>
+      {% endif %}
+    </div>
+  </td>
+</tr>
+{% endif %}
+{% else %}
+<tr><td colspan="8" class="text-muted text-center">Keine Container gefunden</td></tr>
+{% endfor %}

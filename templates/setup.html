@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Einrichtung — Synology Dashboard</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .auth-card {
+      width: 100%; max-width: 400px; padding: 2rem;
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    }
+    .auth-logo {
+      display: flex; align-items: center; gap: .75rem; margin-bottom: 1.75rem;
+    }
+    .auth-logo-icon {
+      width: 38px; height: 38px; border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .auth-logo-icon svg { width: 20px; height: 20px; color: #fff; }
+    .auth-logo-text { font-size: 1.1rem; font-weight: 700; }
+    .setup-step {
+      display: flex; align-items: center; gap: .5rem;
+      font-size: .72rem; font-weight: 600; color: var(--cyan);
+      text-transform: uppercase; letter-spacing: .08em; margin-bottom: .5rem;
+    }
+    .auth-title { font-size: 1rem; font-weight: 600; margin-bottom: .25rem; }
+    .auth-sub   { font-size: .8rem; color: var(--text-muted); margin-bottom: 1.5rem; }
+    .form-group { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1rem; }
+    .form-label { font-size: .78rem; font-weight: 500; color: var(--text-muted); }
+    .form-input {
+      padding: .55rem .75rem;
+      background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text);
+      font-size: .9rem; font-family: var(--font); width: 100%;
+      transition: border-color .15s;
+    }
+    .form-input:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 2px var(--cyan-glow); }
+    .form-hint { font-size: .72rem; color: var(--text-dim); }
+    .btn-setup {
+      width: 100%; padding: .6rem; margin-top: .5rem;
+      background: var(--cyan); border: none; border-radius: var(--radius-sm);
+      color: #000; font-size: .9rem; font-weight: 600; cursor: pointer;
+      font-family: var(--font); transition: opacity .15s;
+    }
+    .btn-setup:hover { opacity: .88; }
+    .auth-error {
+      background: rgba(255,69,105,.1); border: 1px solid rgba(255,69,105,.3);
+      border-radius: var(--radius-sm); padding: .55rem .75rem;
+      font-size: .82rem; color: var(--red); margin-bottom: 1rem;
+    }
+    .pw-strength { height: 3px; border-radius: 2px; margin-top: .4rem; transition: all .3s; background: var(--border); }
+  </style>
+</head>
+<body>
+<div class="bg-orbs" aria-hidden="true">
+  <div class="bg-orb bg-orb-1"></div>
+  <div class="bg-orb bg-orb-2"></div>
+</div>
+
+<div class="auth-card">
+  <div class="auth-logo">
+    <div class="auth-logo-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+    </div>
+    <span class="auth-logo-text">Synology Dashboard</span>
+  </div>
+
+  <div class="setup-step">① Ersteinrichtung</div>
+  <div class="auth-title">Admin-Konto erstellen</div>
+  <div class="auth-sub">Erstelle deine Anmeldedaten für das Dashboard. Dies ist nur einmalig nötig.</div>
+
+  {% if error %}
+  <div class="auth-error">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/setup">
+    <div class="form-group">
+      <label class="form-label" for="username">Benutzername</label>
+      <input class="form-input" type="text" id="username" name="username"
+             value="{{ username or 'admin' }}" autocomplete="username" autofocus required>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="password">Passwort</label>
+      <input class="form-input" type="password" id="password" name="password"
+             autocomplete="new-password" oninput="checkStrength(this.value)" required>
+      <div class="pw-strength" id="pw-strength"></div>
+      <span class="form-hint" id="pw-hint">Mindestens 8 Zeichen empfohlen.</span>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="password2">Passwort bestätigen</label>
+      <input class="form-input" type="password" id="password2" name="password2"
+             autocomplete="new-password" required>
+    </div>
+    <button class="btn-setup" type="submit">Konto erstellen &amp; anmelden</button>
+  </form>
+</div>
+
+<script>
+function checkStrength(pw) {
+  const bar  = document.getElementById('pw-strength');
+  const hint = document.getElementById('pw-hint');
+  let score = 0;
+  if (pw.length >= 8)  score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  const colors = ['', '#ef5350', '#fb8c00', '#fb8c00', '#43a047', '#43a047'];
+  const labels = ['', 'Sehr schwach', 'Schwach', 'Mittel', 'Stark', 'Sehr stark'];
+  bar.style.background = colors[score] || 'var(--border)';
+  bar.style.width = score ? (score * 20) + '%' : '100%';
+  hint.textContent = labels[score] || 'Mindestens 8 Zeichen empfohlen.';
+  hint.style.color = colors[score] || 'var(--text-dim)';
+}
+</script>
+</body>
+</html>

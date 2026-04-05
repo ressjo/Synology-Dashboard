@@ -1,0 +1,30 @@
+synology:
+  host: "YOUR_NAS_IP"          # IP or hostname of your Synology
+  port: 5001                   # DSM port (5001 = HTTPS, 5000 = HTTP)
+  username: "dashboard"        # DSM user created for the dashboard
+  use_https: true
+  # password: set via SYNO_PASSWORD environment variable (see .env)
+
+ssh:
+  host: "YOUR_NAS_IP"          # Usually the same IP as above
+  port: 22
+  username: "dashboard"
+  # password: set via SSH_PASSWORD environment variable (see .env)
+  # key_path: "/config/id_rsa"  # Recommended: use SSH key instead of password
+
+quick_links:
+  # Static sidebar links — services configured via the UI (Dienste page) are added automatically.
+  # You can keep DSM here since it is not managed as an integration.
+  - name: "DSM"
+    url: "https://YOUR_NAS_IP:5001"
+    icon: "server"
+    color: "#3b82f6"
+
+# Paperless, Portainer, Photos, AdGuard → configure via the dashboard UI (Dienste page).
+# Credentials for Paperless and Portainer can optionally be set via environment variables:
+#   PAPERLESS_TOKEN, PORTAINER_PASSWORD (see .env)
+
+dashboard:
+  title: "Synology Dashboard"
+  stats_interval_seconds: 60   # How often stats are saved to the database
+  refresh_interval_seconds: 5  # Live page refresh interval

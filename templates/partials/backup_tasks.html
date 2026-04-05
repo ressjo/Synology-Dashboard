@@ -1,0 +1,90 @@
+{% if error %}
+<div class="alert alert-warning">
+  <i data-feather="alert-triangle"></i>
+  DSM API nicht erreichbar: {{ error }}
+</div>
+{% endif %}
+
+{% if not tasks %}
+<div class="empty-state">
+  <i data-feather="inbox"></i>
+  <p>Keine HyperBackup-Aufgaben gefunden.</p>
+</div>
+{% else %}
+
+{% for task in tasks %}
+{% set tid = task.task_id %}
+{% set st = statuses.get(tid, {}) %}
+{% set state  = st.get('state',  task.get('state',  'unknown')) %}
+{% set status = st.get('status', task.get('status', '')) %}
+
+{# "status=backup" bedeutet: Backup läuft gerade #}
+{% set is_running = status == 'backup' or (state not in ('backupable', 'none', 'unknown', '') and 'error' not in state) %}
+{% set is_error   = 'error' in state or 'fail' in state %}
+
+<div class="backup-task-card card">
+  <div class="backup-task-header">
+    <div class="backup-task-title">
+      {% if is_running %}
+        <span class="status-dot status-paused pulse-dot"></span>
+      {% elif is_error %}
+        <span class="status-dot status-stopped"></span>
+      {% else %}
+        <span class="status-dot status-running"></span>
+      {% endif %}
+      <strong>{{ task.name }}</strong>
+    </div>
+
+    <div class="backup-task-meta">
+      <span class="meta-badge">
+        <i data-feather="hard-drive"></i>
+        {% if task.transfer_type == 'image_local' %}Lokal
+        {% elif task.transfer_type == 'rsync' %}rsync
+        {% else %}{{ task.type }}{% endif %}
+      </span>
+      <button class="btn btn-sm {% if is_running %}btn-ghost{% else %}btn-primary{% endif %}"
+              {% if not is_running %}
+              hx-post="/api/backup/run/{{ tid }}"
+              hx-confirm="Backup '{{ task.name }}' jetzt starten?"
+              hx-on::after-request="document.getElementById('backup-tasks').dispatchEvent(new Event('reload')); if(typeof reloadLogs==='function') reloadLogs();"
+              {% else %}
+              disabled title="Backup läuft bereits"
+              {% endif %}>
+        {% if is_running %}
+          <i data-feather="loader"></i> Läuft…
+        {% else %}
+          <i data-feather="play"></i> Starten
+        {% endif %}
+      </button>
+    </div>
+  </div>
+
+  <!-- Fortschrittsbalken -->
+  <div class="backup-progress-wrap">
+    {% if is_running %}
+      <div class="progress-bar" style="height:8px">
+        <div class="progress-fill fill-warning progress-indeterminate"></div>
+      </div>
+      <div class="backup-state-label text-warning">Backup läuft…</div>
+    {% elif is_error %}
+      <div class="progress-bar" style="height:8px">
+        <div class="progress-fill fill-danger" style="width:100%"></div>
+      </div>
+      <div class="backup-state-label text-danger">{{ state }}</div>
+    {% else %}
+      <div class="progress-bar" style="height:8px">
+        <div class="progress-fill fill-ok" style="width:100%"></div>
+      </div>
+      <div class="backup-state-label text-muted">Bereit</div>
+    {% endif %}
+  </div>
+
+  <div class="backup-task-footer">
+    <span class="text-muted text-small">
+      Ziel: <span class="mono">{{ task.target_id }}</span>
+    </span>
+    <span class="text-muted text-small">Task-ID: {{ tid }}</span>
+  </div>
+</div>
+{% endfor %}
+{% endif %}

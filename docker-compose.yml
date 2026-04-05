@@ -1,0 +1,16 @@
+services:
+  dashboard:
+    image: synology-dashboard
+    container_name: synology-dashboard
+    restart: unless-stopped
+    network_mode: host
+
+    volumes:
+      - /volume1/docker/synology-dashboard/config.yaml:/app/config.yaml:ro
+      - /volume1/docker/synology-dashboard/data:/app/data
+      - /volume1/docker/synology-dashboard/.env:/app/.env:ro
+
+    environment:
+      - CONFIG_PATH=/app/config.yaml
+      - DB_PATH=/app/data/dashboard.db
+      - TZ=Europe/Berlin

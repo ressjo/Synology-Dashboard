@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <h1><i data-feather="archive"></i> HyperBackup</h1>
+</div>
+
+<!-- Zusammenfassung -->
+<section>
+  <h2 class="section-title"><i data-feather="info"></i> Zusammenfassung</h2>
+  <div class="card"
+       id="backup-summary"
+       hx-get="/api/backup/summary"
+       hx-trigger="load, every 30s"
+       hx-swap="innerHTML">
+    <div class="text-muted">Lade…</div>
+  </div>
+</section>
+
+<!-- Aufgaben (HTMX polled alle 10s) -->
+<section>
+  <h2 class="section-title">Aufgaben</h2>
+  <div
+    id="backup-tasks"
+    hx-get="/api/backup/tasks"
+    hx-trigger="load, every 10s, reload"
+    hx-swap="innerHTML">
+    <div class="card"><span class="text-muted">Lade...</span></div>
+  </div>
+</section>
+
+<!-- Manueller Trigger (Fallback) -->
+<section>
+  <h2 class="section-title">Manueller Trigger</h2>
+  <div class="card form-card">
+    <p class="text-muted">Backup per Task-ID starten (SSH-Fallback):</p>
+    <div class="input-row">
+      <input type="number" id="manual-task-id" placeholder="Task ID z.B. 1" class="input">
+      <button class="btn btn-primary" onclick="manualBackup()">
+        <i data-feather="play"></i> Backup starten
+      </button>
+    </div>
+    <div id="manual-result"></div>
+  </div>
+</section>
+
+<!-- Backup Log -->
+<section>
+  <h2 class="section-title">Verlauf</h2>
+  <div class="card" id="backup-logs">
+    {% include "partials/backup_logs.html" %}
+  </div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function reloadLogs() {
+  htmx.ajax("GET", "/api/backup/logs", {target: "#backup-logs", swap: "innerHTML"})
+    .then(() => feather.replace());
+}
+
+function manualBackup() {
+  const id = document.getElementById("manual-task-id").value;
+  if (!id) return;
+  const res = document.getElementById("manual-result");
+  res.innerHTML = '<span class="text-muted">Starte...</span>';
+
+  fetch(`/api/backup/run/${id}`, {method: "POST"})
+    .then(r => r.json())
+    .then(data => {
+      res.innerHTML = `<span class="text-ok"><i data-feather="check"></i> ${data.message || 'Gestartet'} (${data.method})</span>`;
+      feather.replace();
+      reloadLogs();
+    })
+    .catch(e => {
+      res.innerHTML = `<span class="text-danger"><i data-feather="x"></i> Fehler: ${e}</span>`;
+      feather.replace();
+    });
+}
+
+document.body.addEventListener("htmx:afterSwap", () => feather.replace());
+</script>
+{% endblock %}

@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <h1><i data-feather="box"></i> Docker Container</h1>
+  <button class="btn btn-ghost" onclick="refreshContainers()">
+    <i data-feather="refresh-cw"></i> Aktualisieren
+  </button>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Name</th>
+        <th>Image</th>
+        <th>CPU</th>
+        <th>RAM</th>
+        <th>Ports</th>
+        <th>Erstellt</th>
+        <th>Aktionen</th>
+      </tr>
+    </thead>
+    <tbody id="container-table-body">
+      {% for c in containers %}
+      {% if c.get('error') %}
+      <tr><td colspan="8" class="text-danger">Fehler: {{ c.error }}</td></tr>
+      {% else %}
+      <tr>
+        <td>
+          <span class="status-dot status-{{ c.state }}"></span>
+          <span class="status-text">{{ c.status }}</span>
+        </td>
+        <td class="mono">{{ c.name }}</td>
+        <td class="mono text-muted text-small">{{ c.image }}</td>
+        <td id="cpu-{{ c.id }}" class="mono text-muted text-small">
+          {% if c.state == 'running' %}…{% else %}—{% endif %}
+        </td>
+        <td id="mem-{{ c.id }}" class="mono text-muted text-small">
+          {% if c.state == 'running' %}…{% else %}—{% endif %}
+        </td>
+        <td class="mono text-small">{{ c.ports }}</td>
+        <td class="text-muted text-small">{{ c.created }}</td>
+        <td>
+          <div class="action-buttons">
+            {% if c.state != 'running' %}
+            <button class="btn btn-sm btn-ok"
+                    hx-post="/api/containers/{{ c.id }}/start"
+                    hx-confirm="Container '{{ c.name }}' starten?"
+                    hx-on::after-request="refreshContainers()">
+              <i data-feather="play"></i>
+            </button>
+            {% endif %}
+            {% if c.state == 'running' %}
+            <button class="btn btn-sm btn-warning"
+                    hx-post="/api/containers/{{ c.id }}/stop"
+                    hx-confirm="Container '{{ c.name }}' stoppen?"
+                    hx-on::after-request="refreshContainers()">
+              <i data-feather="square"></i>
+            </button>
+            <button class="btn btn-sm btn-ghost"
+                    hx-post="/api/containers/{{ c.id }}/restart"
+                    hx-confirm="Container '{{ c.name }}' neu starten?"
+                    hx-on::after-request="refreshContainers()">
+              <i data-feather="refresh-cw"></i>
+            </button>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endif %}
+      {% else %}
+      <tr><td colspan="8" class="text-muted text-center">Keine Container gefunden</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function refreshContainers() {
+  htmx.ajax("GET", "/api/containers", {target: "#container-table-body", swap: "innerHTML"})
+    .then(() => { feather.replace(); loadContainerStats(); });
+}
+
+function loadContainerStats() {
+  fetch('/api/containers/stats')
+    .then(r => r.json())
+    .then(stats => {
+      for (const [id, s] of Object.entries(stats)) {
+        const cpuEl = document.getElementById(`cpu-${id}`);
+        const memEl = document.getElementById(`mem-${id}`);
+        if (cpuEl) {
+          if (s.cpu_pct === null) {
+            cpuEl.textContent = '—';
+          } else {
+            const cls = s.cpu_pct > 80 ? 'text-danger' : s.cpu_pct > 50 ? 'text-warning' : 'text-ok';
+            cpuEl.innerHTML = `<span class="${cls}">${s.cpu_pct.toFixed(1)}%</span>`;
+          }
+        }
+        if (memEl) {
+          if (s.mem_mb === null) {
+            memEl.textContent = '—';
+          } else {
+            const cls = s.mem_pct > 80 ? 'text-danger' : s.mem_pct > 60 ? 'text-warning' : '';
+            memEl.innerHTML = `<span class="${cls}">${s.mem_mb} MB</span> <span class="text-muted">${s.mem_pct.toFixed(1)}%</span>`;
+          }
+        }
+      }
+    })
+    .catch(() => {});
+}
+
+// Nach HTMX-Swap feather icons neu rendern
+document.body.addEventListener("htmx:afterSwap", () => {
+  feather.replace();
+  loadContainerStats();
+});
+
+// Container-Liste alle 30s automatisch aktualisieren
+setInterval(() => {
+  htmx.ajax("GET", "/api/containers", {target: "#container-table-body", swap: "innerHTML"})
+    .then(() => { feather.replace(); loadContainerStats(); });
+}, 30000);
+
+// Stats alle 15s separat aktualisieren (schneller als Container-Liste)
+setInterval(loadContainerStats, 15000);
+
+// Initial laden
+loadContainerStats();
+</script>
+{% endblock %}

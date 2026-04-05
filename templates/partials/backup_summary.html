@@ -1,0 +1,84 @@
+{% if not summaries %}
+<div class="text-muted text-small">Keine Backup-Aufgaben gefunden.</div>
+{% else %}
+{% for s in summaries %}
+<div class="bksummary-row {% if not loop.last %}bksummary-divider{% endif %}">
+
+  <div class="bksummary-header">
+    {% if s.is_running %}
+      <span class="status-dot status-paused pulse-dot"></span>
+      <span class="bksummary-name">{{ s.name }}</span>
+      <span class="badge badge-warning" style="margin-right:auto">Läuft…</span>
+      <button class="btn btn-sm btn-ghost" disabled title="Backup läuft bereits">
+        <i data-feather="loader"></i>
+      </button>
+    {% elif s.last_status == 'fehler' %}
+      <span class="status-dot status-stopped"></span>
+      <span class="bksummary-name">{{ s.name }}</span>
+      <span class="badge badge-danger" style="margin-right:auto">Fehler</span>
+      <button class="btn btn-sm btn-primary"
+              onclick="startBackup({{ s.task_id }}, this)"
+              title="Backup starten">
+        <i data-feather="play"></i>
+      </button>
+    {% elif s.last_status == 'gestartet' %}
+      <span class="status-dot status-running"></span>
+      <span class="bksummary-name">{{ s.name }}</span>
+      <span class="badge badge-ok" style="margin-right:auto">Erfolgreich</span>
+      <button class="btn btn-sm btn-primary"
+              onclick="startBackup({{ s.task_id }}, this)"
+              title="Backup starten">
+        <i data-feather="play"></i>
+      </button>
+    {% else %}
+      <span class="status-dot" style="background:var(--text-dim)"></span>
+      <span class="bksummary-name">{{ s.name }}</span>
+      <span class="badge" style="color:var(--text-muted);margin-right:auto">Noch nicht gestartet</span>
+      <button class="btn btn-sm btn-primary"
+              onclick="startBackup({{ s.task_id }}, this)"
+              title="Backup starten">
+        <i data-feather="play"></i>
+      </button>
+    {% endif %}
+  </div>
+
+  <div class="bksummary-meta">
+    <div class="bksummary-item">
+      <i data-feather="clock"></i>
+      <span class="text-muted">Letzter Run</span>
+      {% if s.last_time %}
+        <span class="mono">{{ s.last_time }}</span>
+      {% else %}
+        <span class="text-dim">–</span>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endfor %}
+{% endif %}
+
+<script>
+function startBackup(taskId, btn) {
+  if (!confirm('Backup jetzt starten?')) return;
+  btn.disabled = true;
+  btn.innerHTML = '<i data-feather="loader"></i>';
+  feather.replace();
+
+  fetch(`/api/backup/run/${taskId}`, { method: 'POST' })
+    .then(r => r.json())
+    .then(() => {
+      // Summary + Logs neu laden
+      htmx.ajax('GET', '/api/backup/summary', {
+        target: document.getElementById('backup-summary-widget') || document.getElementById('backup-summary'),
+        swap: 'innerHTML'
+      });
+      if (typeof reloadLogs === 'function') reloadLogs();
+    })
+    .catch(e => {
+      btn.disabled = false;
+      feather.replace();
+      alert('Fehler: ' + e);
+    });
+}
+</script>

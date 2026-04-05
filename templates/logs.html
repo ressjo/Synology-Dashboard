@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <h1><i data-feather="list"></i> Logs</h1>
+  <div class="btn-group">
+    <button class="btn btn-ghost active" onclick="showTab('dsm', this)">DSM</button>
+    <button class="btn btn-ghost" onclick="showTab('syslog', this)">Syslog</button>
+  </div>
+</div>
+
+<!-- DSM Logs -->
+<div id="tab-dsm" class="card" style="padding:0; overflow:hidden">
+  <div
+    id="log-feed"
+    hx-get="/api/logs"
+    hx-trigger="load, every 30s"
+    hx-swap="innerHTML">
+    <div class="log-empty">Lade...</div>
+  </div>
+</div>
+
+<!-- Syslog (/var/log/messages) — wird nur bei Klick geladen -->
+<div id="tab-syslog" class="card" style="padding:0; overflow:hidden; display:none">
+  <div style="display:flex; align-items:center; justify-content:space-between; padding:.75rem 1.25rem; border-bottom:1px solid var(--border)">
+    <span class="text-muted text-small">/var/log/messages — Fehler &amp; Warnungen</span>
+    <button class="btn btn-ghost btn-sm" onclick="loadSyslog()">
+      <i data-feather="refresh-cw"></i> Aktualisieren
+    </button>
+  </div>
+  <div id="syslog-feed">
+    <div class="log-empty">Klicke auf den Tab zum Laden…</div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let syslogLoaded = false;
+
+function showTab(tab, btn) {
+  document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('tab-dsm').style.display    = tab === 'dsm'    ? '' : 'none';
+  document.getElementById('tab-syslog').style.display = tab === 'syslog' ? '' : 'none';
+  if (tab === 'syslog' && !syslogLoaded) loadSyslog();
+}
+
+function loadSyslog() {
+  const el = document.getElementById('syslog-feed');
+  el.innerHTML = '<div class="log-empty"><i data-feather="loader"></i> Lade…</div>';
+  feather.replace();
+  fetch('/api/logs/syslog')
+    .then(r => r.text())
+    .then(html => {
+      el.innerHTML = html;
+      syslogLoaded = true;
+      feather.replace();
+    })
+    .catch(() => {
+      el.innerHTML = '<div class="log-empty">Fehler beim Laden</div>';
+    });
+}
+
+// Nach HTMX-Reload Feather neu rendern
+document.body.addEventListener('htmx:afterSwap', function(e) {
+  if (e.detail.target.id === 'log-feed') feather.replace();
+});
+</script>
+{% endblock %}

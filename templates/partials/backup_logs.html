@@ -1,0 +1,32 @@
+{% if backup_logs %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Zeit</th>
+      <th>Aufgabe</th>
+      <th>Status</th>
+      <th>Meldung</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for log in backup_logs %}
+    <tr>
+      <td class="text-small text-muted">{{ log.timestamp }}</td>
+      <td>{{ log.task_name }}</td>
+      <td>
+        {% if log.status == 'gestartet' %}
+          <span class="badge badge-ok">{{ log.status }}</span>
+        {% elif log.status == 'fehler' %}
+          <span class="badge badge-danger">{{ log.status }}</span>
+        {% else %}
+          <span class="badge">{{ log.status }}</span>
+        {% endif %}
+      </td>
+      <td class="text-small text-muted">{{ log.message }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted text-center" style="padding:1rem">Noch keine Backups über das Dashboard gestartet.</p>
+{% endif %}

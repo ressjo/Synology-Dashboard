@@ -1,0 +1,76 @@
+{% if paperless.get('error') %}
+<div class="card">
+  <span class="text-muted"><i data-feather="alert-circle"></i> {{ paperless.error }}</span>
+</div>
+
+{% else %}
+<div class="paperless-grid">
+  <div class="card paperless-count-card">
+    <div class="stat-icon" style="background:#1a2e1a; color:#22c55e">
+      <i data-feather="file-text"></i>
+    </div>
+    <div class="stat-body">
+      <div class="stat-label">Dokumente gesamt</div>
+      <div class="stat-value">{{ paperless.total }}</div>
+      <!-- Upload direkt unter Anzahl -->
+      <label class="upload-drop-zone" id="upload-drop-zone" style="margin-top:.6rem">
+        <i data-feather="upload"></i>
+        <span class="upload-label">Hochladen</span>
+        <input type="file" id="paperless-file-input" accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.gif" style="display:none">
+      </label>
+      <div id="upload-status"></div>
+    </div>
+  </div>
+
+  <div class="card paperless-recent-card">
+    <div class="paperless-recent-title">Zuletzt hinzugefügt</div>
+    {% for doc in paperless.recent %}
+    <a href="{{ doc.url }}" target="_blank" class="doc-row">
+      <span class="doc-title">{{ doc.title }}</span>
+      <span class="doc-date text-muted">{{ doc.created }}</span>
+    </a>
+    {% else %}
+    <span class="text-muted">Keine Dokumente</span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<script>
+(function() {
+  const input  = document.getElementById('paperless-file-input');
+  const zone   = document.getElementById('upload-drop-zone');
+  const status = document.getElementById('upload-status');
+  if (!input) return;
+
+  function uploadFile(file) {
+    status.innerHTML = '<span class="upload-progress"><i data-feather="loader"></i> Lädt…</span>';
+    feather.replace();
+    const fd = new FormData();
+    fd.append('file', file);
+    fetch('/api/paperless/upload', {method: 'POST', body: fd})
+      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail)))
+      .then(() => {
+        status.innerHTML = '<span class="text-ok"><i data-feather="check-circle"></i> Hochgeladen</span>';
+        feather.replace();
+        setTimeout(() => {
+          status.innerHTML = '';
+          htmx.ajax('GET', '/api/paperless', {target: '#paperless-widget', swap: 'innerHTML'});
+        }, 2000);
+      })
+      .catch(e => {
+        status.innerHTML = `<span class="text-danger"><i data-feather="x-circle"></i> ${e}</span>`;
+        feather.replace();
+      });
+  }
+
+  input.addEventListener('change', () => { if (input.files[0]) uploadFile(input.files[0]); });
+  zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+  });
+})();
+</script>

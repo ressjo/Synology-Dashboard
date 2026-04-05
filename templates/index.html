@@ -1,0 +1,433 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <h1>Dashboard</h1>
+  {% if sys_info %}
+  {% if update_info and update_info.update_available %}
+  <span class="badge badge-danger">
+    <i data-feather="alert-circle"></i>
+    DSM {{ sys_info.get('dsm_version', '') }} &nbsp;|&nbsp; {{ sys_info.get('model', '') }} &nbsp;· Update verfügbar
+  </span>
+  {% else %}
+  <span class="badge badge-ok">
+    <i data-feather="check-circle"></i>
+    DSM {{ sys_info.get('dsm_version', '') }} &nbsp;|&nbsp; {{ sys_info.get('model', '') }}
+  </span>
+  {% endif %}
+  {% endif %}
+</div>
+
+<!-- Live Stats Cards (JS polled) -->
+<div id="stats-cards-inner" class="stats-grid">
+  <div class="card stat-card loading">Lade...</div>
+</div>
+
+<!-- Shared Folders -->
+<section>
+  <h2 class="section-title">
+    <i data-feather="folder"></i> Freigegebene Ordner
+  </h2>
+  <div class="card" id="shares-widget">
+    <div class="text-muted text-small">Lade…</div>
+  </div>
+</section>
+
+<!-- Paperless Widget -->
+<section>
+  <h2 class="section-title">
+    <i data-feather="file-text"></i> Paperless
+    <a href="{{ paperless_url }}" target="_blank" class="section-link">Öffnen →</a>
+  </h2>
+  <div id="paperless-widget"
+       hx-get="/api/paperless"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="card"><span class="text-muted">Lade...</span></div>
+  </div>
+</section>
+
+<!-- HyperBackup Zusammenfassung -->
+<section>
+  <h2 class="section-title">
+    <i data-feather="archive"></i> HyperBackup
+    <a href="/backup" class="section-link">Details →</a>
+  </h2>
+  <div class="card"
+       id="backup-summary-widget"
+       hx-get="/api/backup/summary"
+       hx-trigger="load, every 60s"
+       hx-swap="innerHTML">
+    <div class="text-muted">Lade…</div>
+  </div>
+</section>
+
+<!-- Log-Vorschau (nur Warnings + Errors) -->
+<section>
+  <h2 class="section-title">
+    <i data-feather="alert-triangle"></i> Wichtige Meldungen
+    <a href="/logs" class="section-link">Alle Logs →</a>
+  </h2>
+  <div class="card" style="padding:0;overflow:hidden"
+       id="log-preview"
+       hx-get="/api/logs"
+       hx-trigger="load"
+       hx-swap="innerHTML"
+       hx-on::after-swap="filterPreview()">
+    <div class="log-empty">Lade...</div>
+  </div>
+</section>
+
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Log-Vorschau ──────────────────────────────────────────────
+function filterPreview() {
+  const entries = document.querySelectorAll('#log-preview .log-entry');
+  let shown = 0;
+  entries.forEach(el => {
+    const isImportant = el.classList.contains('log-error') || el.classList.contains('log-warning');
+    if (isImportant && shown < 5) { el.style.display = ''; shown++; }
+    else { el.style.display = 'none'; }
+  });
+  if (shown === 0) {
+    const feed = document.querySelector('#log-preview .log-feed');
+    if (feed) feed.innerHTML = '<div class="log-empty text-ok"><i data-feather="check-circle"></i> Keine Warnungen</div>';
+  }
+  feather.replace();
+}
+
+// ── Animations ───────────────────────────────────────────────
+function animateCounter(el, target, duration = 800) {
+  const isFloat = !Number.isInteger(target);
+  const start = parseFloat(el.textContent.replace(/[^0-9.]/g, '')) || 0;
+  if (Math.abs(target - start) < 0.5) return; // skip tiny changes
+  const startTime = performance.now();
+  function tick(now) {
+    const p = Math.min((now - startTime) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
+    const val = start + (target - start) * eased;
+    el.textContent = isFloat ? val.toFixed(1) : Math.round(val);
+    if (p < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+function flashValue(el) {
+  el.classList.remove('stat-value-flash');
+  void el.offsetWidth; // reflow to restart animation
+  el.classList.add('stat-value-flash');
+}
+
+// ── Prozesse (in CPU-Karte) ───────────────────────────────────
+function loadProcesses() {
+  fetch('/api/stats/processes')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('process-list');
+      if (!el) return;
+      if (!data.length) {
+        el.innerHTML = '<div class="text-muted text-small" style="margin-top:.5rem">Keine Daten</div>';
+        return;
+      }
+      const max = Math.max(data[0]?.cpu || 1, 1);
+      el.innerHTML = '<div class="stat-detail-divider"></div>' + data.map(p => `
+        <div class="process-row">
+          <span class="process-cmd mono">${p.cmd}</span>
+          <div class="process-bar-wrap">
+            <div class="process-bar" style="width:${Math.min(p.cpu / max * 100, 100)}%"></div>
+          </div>
+          <span class="process-pct mono">${p.cpu.toFixed(1)}%</span>
+        </div>
+      `).join('');
+    })
+    .catch(() => {
+      const el = document.getElementById('process-list');
+      if (el) el.innerHTML = '<div class="text-muted text-small" style="margin-top:.4rem">SSH nicht erreichbar</div>';
+    });
+}
+
+// ── Aktive Sitzungen (in Netzwerk-Karte) ─────────────────────
+function loadSessions() {
+  fetch('/api/stats/sessions')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('session-list');
+      if (!el) return;
+      if (!data.length) {
+        el.innerHTML = '<div class="stat-detail-divider"></div><div class="text-muted text-small">Keine aktiven Sitzungen</div>';
+        return;
+      }
+      const protoIcon = p => {
+        if (p.includes('SSH'))   return '⌨';
+        if (p.includes('SMB') || p.includes('CIFS')) return '🗂';
+        if (p.includes('FTP'))   return '📁';
+        return '🌐';
+      };
+      el.innerHTML = '<div class="stat-detail-divider"></div>' + data.map((s, i) => `
+        <div style="padding:.25rem 0${i < data.length - 1 ? ';border-bottom:1px solid var(--border)' : ''}">
+          <div style="display:flex;align-items:center;gap:.5rem">
+            <span style="font-size:.78rem;font-weight:600">${s.user}</span>
+            <span class="text-muted" style="font-size:.7rem">${protoIcon(s.protocol)} ${s.protocol}</span>
+          </div>
+          <div class="mono" style="font-size:.67rem;color:var(--text-dim);margin-top:.1rem">${s.from_ip}</div>
+        </div>
+      `).join('');
+    })
+    .catch(() => {
+      const el = document.getElementById('session-list');
+      if (el) el.innerHTML = '<div class="text-muted text-small" style="margin-top:.4rem">Nicht erreichbar</div>';
+    });
+}
+
+// ── Stats-Cards rendern ───────────────────────────────────────
+function pollStats() {
+  fetch('/api/stats/live')
+    .then(r => r.json())
+    .then(d => renderStatsCards(d))
+    .catch(() => {});
+}
+pollStats();
+setInterval(pollStats, {{ refresh }} * 1000);
+
+function renderStatsCards(d) {
+  const el = document.getElementById("stats-cards-inner");
+  if (!el) return;
+
+  // Save sub-content BEFORE wiping the DOM — we still own the DOM here
+  const prevProcesses = document.getElementById('process-list')?.innerHTML ?? null;
+  const prevSessions  = document.getElementById('session-list')?.innerHTML ?? null;
+  const prevGrowth    = document.getElementById('storage-growth-list')?.innerHTML ?? null;
+
+  const diskHtml = (d.disks || []).map(disk => `
+    <div class="disk-item">
+      <span class="disk-name">${disk.name}</span>
+      <div class="progress-bar">
+        <div class="progress-fill ${disk.pct > 85 ? 'fill-danger' : disk.pct > 70 ? 'fill-warning' : 'fill-ok'}"
+             style="width: ${disk.pct}%"></div>
+      </div>
+      <span class="disk-label">${disk.used_gb} / ${disk.total_gb} GB</span>
+    </div>
+  `).join("");
+
+  const tempColor = t => t == null ? '' : t >= 60 ? 'text-danger' : t >= 50 ? 'text-warning' : 'text-ok';
+  const tempBadge = (t, warn) => t == null ? '' :
+    `<span class="temp-badge ${warn ? 'text-danger' : tempColor(t)}"><i data-feather="thermometer"></i>${t}°C</span>`;
+
+  const physDiskHtml = (d.phys_disks || []).map(disk => `
+    <div class="disk-item">
+      <span class="disk-name">${disk.name}</span>
+      <div class="disk-temp-row">
+        ${disk.temp != null ? `<span class="temp-badge ${tempColor(disk.temp)}"><i data-feather="thermometer"></i>${disk.temp}°C</span>` : ''}
+        <span class="disk-status-dot status-${disk.status === 'normal' ? 'running' : 'stopped'}" style="width:7px;height:7px;border-radius:50%;display:inline-block"></span>
+        <span class="text-muted" style="font-size:.72rem">${disk.status}</span>
+      </div>
+    </div>
+  `).join("");
+
+  el.innerHTML = `
+    <div class="card stat-card stat-card-tall">
+      <div class="stat-icon cpu-icon"><i data-feather="cpu"></i></div>
+      <div class="stat-body">
+        <div class="stat-label">CPU</div>
+        <div class="stat-value-row">
+          <span class="stat-value">${d.cpu}%</span>
+          ${tempBadge(d.sys_temp, d.temp_warn)}
+        </div>
+        <div class="progress-bar"><div class="progress-fill ${d.cpu > 80 ? 'fill-danger' : d.cpu > 60 ? 'fill-warning' : 'fill-ok'}" style="width:${d.cpu}%"></div></div>
+        ${d.power_est != null ? `<div class="stat-sub" style="margin-top:.35rem"><i data-feather="zap" style="width:11px;height:11px"></i> ~${d.power_est} W <span style="opacity:.5;font-size:.7rem">(Schätzung)</span></div>` : ''}
+        <div id="process-list"></div>
+      </div>
+    </div>
+    <div class="card stat-card stat-card-tall">
+      <div class="stat-icon ram-icon"><i data-feather="database"></i></div>
+      <div class="stat-body">
+        <div class="stat-label">RAM</div>
+        <div class="stat-value">${d.mem_pct}%</div>
+        <div class="stat-sub">${d.mem_used_mb} / ${d.mem_total_mb} MB</div>
+        <div class="progress-bar"><div class="progress-fill ${d.mem_pct > 85 ? 'fill-danger' : d.mem_pct > 70 ? 'fill-warning' : 'fill-ok'}" style="width:${d.mem_pct}%"></div></div>
+        ${(d.mem_app_mb != null) ? `
+        <div class="stat-detail-divider"></div>
+        <div class="mem-breakdown">
+          <div class="mem-row">
+            <span class="mem-dot" style="background:var(--purple)"></span>
+            <span class="mem-label">Apps</span>
+            <span class="mem-val mono">${d.mem_app_mb} MB</span>
+          </div>
+          <div class="mem-row">
+            <span class="mem-dot" style="background:var(--cyan)"></span>
+            <span class="mem-label">Cache</span>
+            <span class="mem-val mono">${d.mem_cache_mb} MB</span>
+          </div>
+          <div class="mem-row">
+            <span class="mem-dot" style="background:var(--green)"></span>
+            <span class="mem-label">Frei</span>
+            <span class="mem-val mono">${d.mem_free_mb} MB</span>
+          </div>
+        </div>` : ''}
+      </div>
+    </div>
+    <div class="card stat-card stat-card-tall">
+      <div class="stat-icon net-icon"><i data-feather="activity"></i></div>
+      <div class="stat-body">
+        <div class="stat-label">Netzwerk</div>
+        <div class="stat-value">${d.net_rx_kb} KB/s</div>
+        <div class="stat-sub">↑ ${d.net_tx_kb} KB/s &nbsp; ↓ ${d.net_rx_kb} KB/s</div>
+        <div id="session-list"></div>
+      </div>
+    </div>
+    <div class="card stat-card disk-card">
+      <div class="stat-icon disk-icon"><i data-feather="hard-drive"></i></div>
+      <div class="stat-body">
+        <div class="stat-label">Speicher</div>
+        ${diskHtml || '<div class="stat-sub">Keine Volumes</div>'}
+        ${physDiskHtml ? `<div class="disk-divider"></div>${physDiskHtml}` : ''}
+        <div id="storage-growth-list"></div>
+      </div>
+    </div>
+  `;
+  feather.replace();
+
+  // Counter + Flash für CPU und RAM
+  const cpuEl = el.querySelector('.stat-value');
+  if (cpuEl) {
+    const prev = parseFloat(cpuEl.dataset.prev);
+    const cur  = d.cpu;
+    if (!isNaN(prev) && Math.abs(cur - prev) >= 2) flashValue(cpuEl);
+    animateCounter(cpuEl, cur);
+    cpuEl.dataset.prev = cur;
+  }
+  const ramEl = el.querySelectorAll('.stat-value')[1];
+  if (ramEl) animateCounter(ramEl, d.mem_pct);
+
+  // Restore previous content immediately (no flicker), then refresh in background
+  if (prevProcesses !== null) {
+    const pl = document.getElementById('process-list');
+    if (pl) pl.innerHTML = prevProcesses;
+  }
+  if (prevSessions !== null) {
+    const sl = document.getElementById('session-list');
+    if (sl) sl.innerHTML = prevSessions;
+  }
+  if (prevGrowth !== null) {
+    const gl = document.getElementById('storage-growth-list');
+    if (gl) gl.innerHTML = prevGrowth;
+  }
+
+  // First render (no saved content yet) → fetch immediately
+  if (prevProcesses === null) loadProcesses();
+  if (prevSessions === null)  loadSessions();
+  if (prevGrowth === null)    loadStorageGrowth();
+}
+
+// ── Storage Growth (in Speicher-Karte) ───────────────────────
+function loadStorageGrowth() {
+  fetch('/api/stats/storage-growth')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('storage-growth-list');
+      if (!el) return;
+
+      el.innerHTML = '<div class="stat-detail-divider"></div>';
+
+      if (!data.length) {
+        el.innerHTML += '<div class="mem-row"><span class="mem-label text-dim" style="font-size:.7rem">Daten werden gesammelt…</span></div>';
+        return;
+      }
+
+      // Bevorzuge 7d, fallback auf kleinste verfügbare Periode
+      const periods = [7, 30];
+      let bestRows = [];
+      let usedPeriod = 0;
+      for (const p of periods) {
+        const rows = data.filter(r => r.period_days === p);
+        if (rows.length) { bestRows = rows; usedPeriod = p; break; }
+      }
+
+      if (!bestRows.length) {
+        el.innerHTML += '<div class="mem-row"><span class="mem-label text-dim" style="font-size:.7rem">Daten werden gesammelt…</span></div>';
+        return;
+      }
+
+      el.innerHTML += bestRows.map(r => {
+        const sign = r.growth_gb >= 0 ? '+' : '';
+        const growthStr = `${sign}${r.growth_gb.toFixed(2)} GB`;
+        const growthCls = r.growth_gb > 5 ? 'text-warning' : r.growth_gb < 0 ? 'text-ok' : '';
+
+        let forecastStr = '–';
+        let forecastCls = 'text-muted';
+        if (r.days_until_full === null) {
+          forecastStr = 'kein Wachstum'; forecastCls = 'text-muted';
+        } else if (r.days_until_full > 365) {
+          forecastStr = `~${Math.round(r.days_until_full / 365)} Jahre`;
+        } else if (r.days_until_full > 60) {
+          forecastStr = `~${Math.round(r.days_until_full / 30)} Monate`; forecastCls = 'text-ok';
+        } else if (r.days_until_full > 14) {
+          forecastStr = `~${r.days_until_full} Tage`; forecastCls = 'text-warning';
+        } else {
+          forecastStr = `~${r.days_until_full} Tage!`; forecastCls = 'text-danger';
+        }
+
+        return `
+          <div class="mem-row">
+            <span class="mem-label">Wachstum ${usedPeriod}d</span>
+            <span class="mem-val mono ${growthCls}">${growthStr}</span>
+          </div>
+          <div class="mem-row">
+            <span class="mem-label">Prognose voll</span>
+            <span class="mem-val mono ${forecastCls}">${forecastStr}</span>
+          </div>`;
+      }).join('');
+    })
+    .catch(() => {
+      const el = document.getElementById('storage-growth-list');
+      if (el) el.innerHTML = '';
+    });
+}
+
+// Intervall-Refresh unabhängig vom Stats-Poll
+setInterval(loadProcesses,     15000);
+setInterval(loadSessions,      30000);
+setInterval(loadStorageGrowth, 300000); // alle 5 Min reicht
+
+// ── Shared Folders ────────────────────────────────────────────
+function loadShares() {
+  fetch('/api/stats/shares')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('shares-widget');
+      if (!el) return;
+      if (data.error || !data.folders?.length) {
+        el.innerHTML = '<div class="text-muted text-small">SSH nicht erreichbar</div>';
+        return;
+      }
+      const volTotal = data.volume_total_mb || 0;
+      el.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem">
+          ${data.folders.map(f => {
+            const pct = volTotal > 0 ? Math.min(f.size_mb / volTotal * 100, 100) : 0;
+            const gb  = f.size_mb >= 1024
+              ? (f.size_mb / 1024).toFixed(1) + ' GB'
+              : f.size_mb + ' MB';
+            const fillCls = pct > 80 ? 'fill-danger' : pct > 60 ? 'fill-warning' : 'fill-ok';
+            return `
+              <div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:.25rem">
+                  <span class="text-small" style="font-weight:500">${f.name}</span>
+                  <span class="mono text-small text-muted">${gb}</span>
+                </div>
+                <div class="progress-bar" style="height:5px">
+                  <div class="progress-fill ${fillCls}" style="width:${pct}%"></div>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>`;
+    })
+    .catch(() => {});
+}
+loadShares();
+setInterval(loadShares, 300000); // alle 5 Min
+</script>
+{% endblock %}

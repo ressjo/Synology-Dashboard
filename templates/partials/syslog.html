@@ -1,0 +1,28 @@
+{% if entries and entries[0].get('error') %}
+<div class="log-empty">
+  <i data-feather="alert-circle"></i>
+  SSH-Fehler: {{ entries[0].error }}
+</div>
+{% elif not entries %}
+<div class="log-empty">
+  <i data-feather="check-circle"></i>
+  Keine Warnungen oder Fehler gefunden
+</div>
+{% else %}
+<div class="log-feed">
+  {% for e in entries %}
+  <div class="log-entry log-{{ 'error' if e.severity == 'error' else 'warning' }}">
+    <div class="log-icon">
+      <i data-feather="{{ 'alert-circle' if e.severity == 'error' else 'alert-triangle' }}"></i>
+    </div>
+    <div class="log-body">
+      <span class="log-message">{{ e.message }}</span>
+      <div class="log-meta">
+        <span class="log-source">{{ e.process }}</span>
+        <span class="log-time">{{ e.time }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

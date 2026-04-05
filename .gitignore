@@ -1,0 +1,29 @@
+# Secrets — never commit!
+.env
+
+# Local database (contains credentials and settings)
+data/
+*.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code project files
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <h1><i data-feather="bar-chart-2"></i> Statistiken</h1>
+  <div class="btn-group">
+    <button class="btn btn-ghost active" onclick="loadHistory(6, this)">6h</button>
+    <button class="btn btn-ghost" onclick="loadHistory(24, this)">24h</button>
+    <button class="btn btn-ghost" onclick="loadHistory(168, this)">7d</button>
+  </div>
+</div>
+
+<!-- Disk Health / SMART -->
+<div class="card" id="disk-health-card">
+  <div class="section-title"><i data-feather="hard-drive"></i> Disk Health</div>
+  <div id="disk-health-content" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem">
+    <div class="text-muted text-small">Lade…</div>
+  </div>
+</div>
+
+<!-- Storage Growth / Forecast -->
+<div class="card card-glow-cyan">
+  <div class="section-title">
+    <i data-feather="trending-up"></i> Storage Wachstum &amp; Prognose
+  </div>
+  <div id="storage-growth-content" class="storage-growth-table">
+    <div class="text-muted" style="padding:.5rem 0">Lade…</div>
+  </div>
+</div>
+
+<div class="charts-grid">
+  <div class="card chart-card">
+    <h3>CPU Auslastung (%)</h3>
+    <canvas id="cpuChart"></canvas>
+  </div>
+  <div class="card chart-card">
+    <h3>RAM Auslastung (%)</h3>
+    <canvas id="ramChart"></canvas>
+  </div>
+  <div class="card chart-card">
+    <h3>System Temperatur (°C)</h3>
+    <canvas id="tempChart"></canvas>
+  </div>
+  <div class="card chart-card">
+    <h3>Netzwerk RX (KB/s)</h3>
+    <canvas id="netRxChart"></canvas>
+  </div>
+  <div class="card chart-card">
+    <h3>Netzwerk TX (KB/s)</h3>
+    <canvas id="netTxChart"></canvas>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const chartDefaults = {
+  type: "line",
+  options: {
+    responsive: true,
+    animation: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: {
+        ticks: { color: "#94a3b8", maxTicksLimit: 8, maxRotation: 0 },
+        grid: { color: "#1e293b" }
+      },
+      y: {
+        ticks: { color: "#94a3b8" },
+        grid: { color: "#334155" },
+        beginAtZero: true,
+      }
+    }
+  }
+};
+
+function makeChart(id, color) {
+  const ctx = document.getElementById(id).getContext("2d");
+  return new Chart(ctx, {
+    ...chartDefaults,
+    data: {
+      labels: [],
+      datasets: [{
+        data: [],
+        borderColor: color,
+        backgroundColor: color + "22",
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+      }]
+    }
+  });
+}
+
+const cpuChart   = makeChart("cpuChart",   "#3b82f6");
+const ramChart   = makeChart("ramChart",   "#8b5cf6");
+const tempChart  = makeChart("tempChart",  "#ef4444");
+const netRxChart = makeChart("netRxChart", "#22c55e");
+const netTxChart = makeChart("netTxChart", "#f59e0b");
+
+// Temperatur-Grenzlinien
+tempChart.options.plugins.annotation = {};
+tempChart.options.scales.y.min = 20;
+
+function updateChart(chart, labels, values) {
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = values;
+  chart.update();
+}
+
+function loadHistory(hours, btn) {
+  document.querySelectorAll(".btn-group .btn").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+
+  fetch(`/api/stats/history?hours=${hours}`)
+    .then(r => r.json())
+    .then(rows => {
+      const labels = rows.map(r => r.timestamp.slice(11, 16)); // HH:MM
+      updateChart(cpuChart,   labels, rows.map(r => r.cpu_usage));
+      updateChart(ramChart,   labels, rows.map(r => r.memory_total > 0 ? Math.round(r.memory_used / r.memory_total * 100) : 0));
+      updateChart(tempChart,  labels, rows.map(r => r.sys_temp));
+      updateChart(netRxChart, labels, rows.map(r => Math.round(r.network_rx / 1024)));
+      updateChart(netTxChart, labels, rows.map(r => Math.round(r.network_tx / 1024)));
+    });
+}
+
+loadHistory(6, document.querySelector(".btn-group .btn"));
+
+// ── Storage Growth ────────────────────────────────────────────
+function fmtGrowth(gb) {
+  if (gb === null || gb === undefined) return '—';
+  const sign = gb >= 0 ? '+' : '';
+  return `${sign}${gb.toFixed(2)} GB`;
+}
+function fmtDaily(gb) {
+  if (gb === null || gb === undefined) return '—';
+  if (Math.abs(gb) < 0.01) return '< 0.01 GB/d';
+  return `${gb >= 0 ? '+' : ''}${gb.toFixed(3)} GB/d`;
+}
+function fmtForecast(days) {
+  if (days === null || days === undefined) return '<span class="text-muted">kein Wachstum</span>';
+  if (days > 3650) return '<span class="text-muted">> 10 Jahre</span>';
+  if (days > 365) return `<span class="text-ok">~${Math.round(days/365)} Jahre</span>`;
+  if (days > 60)  return `<span class="text-ok">~${Math.round(days/30)} Monate</span>`;
+  if (days > 14)  return `<span class="text-warning">~${days} Tage</span>`;
+  return `<span class="text-danger">~${days} Tage!</span>`;
+}
+
+function loadStorageGrowth() {
+  fetch('/api/stats/storage-growth')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('storage-growth-content');
+      if (!data.length) {
+        el.innerHTML = '<div class="text-muted" style="padding:.5rem 0">Noch nicht genug Daten (mind. 7 Tage erforderlich)</div>';
+        return;
+      }
+
+      // Group by volume
+      const volumes = {};
+      data.forEach(row => {
+        if (!volumes[row.volume]) volumes[row.volume] = {};
+        volumes[row.volume][row.period_days] = row;
+      });
+
+      let html = `<table class="growth-table">
+        <thead>
+          <tr>
+            <th>Volume</th>
+            <th>Belegt</th>
+            <th>Wachstum 7d</th>
+            <th>Wachstum 30d</th>
+            <th>Ø pro Tag</th>
+            <th>Prognose voll</th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+      for (const [vol, periods] of Object.entries(volumes)) {
+        const row7  = periods[7];
+        const row30 = periods[30];
+        const cur = row7 || row30;
+        // Prefer 30d for daily avg (more accurate), fallback to 7d
+        const dailyRow = row30 || row7;
+        const forecastDays = dailyRow?.days_until_full;
+
+        html += `<tr>
+          <td class="mono">${vol}</td>
+          <td>
+            <span class="mono">${cur.used_gb} / ${cur.total_gb} GB</span>
+            <div class="mini-bar"><div class="mini-bar-fill ${cur.pct > 80 ? 'danger' : cur.pct > 60 ? 'warning' : ''}" style="width:${cur.pct}%"></div></div>
+          </td>
+          <td class="mono ${row7?.growth_gb > 0 ? 'text-warning' : ''}">${row7 ? fmtGrowth(row7.growth_gb) : '—'}</td>
+          <td class="mono ${row30?.growth_gb > 0 ? 'text-warning' : ''}">${row30 ? fmtGrowth(row30.growth_gb) : '—'}</td>
+          <td class="mono">${dailyRow ? fmtDaily(dailyRow.daily_growth_gb) : '—'}</td>
+          <td>${fmtForecast(forecastDays)}</td>
+        </tr>`;
+      }
+
+      html += '</tbody></table>';
+      el.innerHTML = html;
+    })
+    .catch(() => {
+      document.getElementById('storage-growth-content').innerHTML =
+        '<div class="text-muted">Fehler beim Laden</div>';
+    });
+}
+
+loadStorageGrowth();
+
+// ── Disk Health ───────────────────────────────────────────────
+function loadDiskHealth() {
+  fetch('/api/stats/disk-health')
+    .then(r => r.json())
+    .then(disks => {
+      const el = document.getElementById('disk-health-content');
+      if (!disks.length) { el.innerHTML = '<div class="text-muted text-small">Keine Daten</div>'; return; }
+
+      el.innerHTML = disks.map(d => {
+        const smartOk   = d.smart_status === 'normal';
+        const statusOk  = d.status === 'normal';
+        const tempCls   = d.temp >= 55 ? 'text-danger' : d.temp >= 45 ? 'text-warning' : 'text-ok';
+        const lifeCls   = d.remain_life != null
+          ? (d.remain_life < 10 ? 'text-danger' : d.remain_life < 30 ? 'text-warning' : 'text-ok')
+          : '';
+        const lifeFill  = d.remain_life != null
+          ? (d.remain_life < 10 ? 'fill-danger' : d.remain_life < 30 ? 'fill-warning' : 'fill-ok')
+          : 'fill-ok';
+
+        return `
+          <div style="display:flex;flex-direction:column;gap:.55rem;padding:.75rem;background:rgba(0,0,0,.15);border-radius:var(--radius-sm);border:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:.5rem">
+              <i data-feather="hard-drive" style="width:15px;height:15px;color:var(--amber)"></i>
+              <span style="font-weight:600;font-size:.88rem">${d.name}</span>
+              <span class="badge ${smartOk && statusOk ? 'badge-ok' : 'badge-danger'}" style="margin-left:auto">
+                ${smartOk && statusOk ? 'OK' : 'Warnung'}
+              </span>
+            </div>
+            <div class="text-muted text-small">${d.model}${d.is_ssd ? ' · SSD' : ' · HDD'} · ${d.size_gb > 0 ? Math.round(d.size_gb) + ' GB' : ''}</div>
+
+            <div style="display:flex;justify-content:space-between;font-size:.78rem">
+              <span class="text-muted">Temperatur</span>
+              <span class="mono ${tempCls}">${d.temp != null ? d.temp + ' °C' : '—'}</span>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;font-size:.78rem">
+              <span class="text-muted">SMART</span>
+              <span class="${smartOk ? 'text-ok' : 'text-danger'}">${d.smart_status || '—'}</span>
+            </div>
+
+            ${d.remain_life != null ? `
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:.3rem">
+                <span class="text-muted">Lebensdauer</span>
+                <span class="mono ${lifeCls}">${d.remain_life} %</span>
+              </div>
+              <div class="progress-bar" style="height:5px">
+                <div class="progress-fill ${lifeFill}" style="width:${d.remain_life}%"></div>
+              </div>
+            </div>` : ''}
+          </div>`;
+      }).join('');
+      feather.replace();
+    })
+    .catch(() => {});
+}
+loadDiskHealth();
+</script>
+{% endblock %}

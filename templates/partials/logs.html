@@ -1,0 +1,19 @@
+{% if not entries %}
+<div class="log-empty">Keine Log-Einträge gefunden.</div>
+{% else %}
+<div class="log-feed">
+  {% for e in entries %}
+  <div class="log-entry log-{{ e.severity }}">
+    <span class="log-icon"><i data-feather="{{ e.icon }}"></i></span>
+    <div class="log-body">
+      <span class="log-message">{{ e.message }}</span>
+      <div class="log-meta">
+        <span class="log-source">{{ e.source }}</span>
+        {% if e.user %}<span class="log-user"><i data-feather="user"></i> {{ e.user }}</span>{% endif %}
+        <span class="log-time">{{ e.time }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
