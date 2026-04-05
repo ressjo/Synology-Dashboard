@@ -40,16 +40,17 @@ Monitor system stats, manage Docker containers, track backups, browse logs, and 
 ### 1. Clone or upload the project
 
 Upload the project folder to your NAS — for example to `/volume1/docker/synology-dashboard`.
-over ssh: 
-```bash
-docker build -t synology-dashboard .
-```
+
 
 You can do this via File Station, SCP, or by cloning directly on the NAS:
 
 ```bash
 cd /volume1/docker
 git clone https://github.com/your-username/synology-dashboard.git
+```
+Build the docker over ssh: 
+```bash
+docker build -t synology-dashboard .
 ```
 
 ### 2. Create the environment file
