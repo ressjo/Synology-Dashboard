@@ -23,7 +23,7 @@ Monitor system stats, manage Docker containers, track backups, browse logs, and 
 
 ## Screenshots
 
-[Dashboard](Dashboard.png)
+![Dashboard](Dashboard.png)
 
 ---
 
