@@ -1,3 +1,7 @@
+import asyncio
+from datetime import datetime, timedelta
+
+import httpx
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -13,12 +17,11 @@ router = APIRouter(prefix="/api")
 @router.get("/stats/live")
 async def stats_live():
     try:
-        import asyncio as _aio
-        util, storage, temp_info, mem_detail = await _aio.gather(
+        util, storage, temp_info, mem_detail = await asyncio.gather(
             synology.get_utilization(),
             synology.get_storage_info(),
             synology.get_system_temp(),
-            _aio.to_thread(get_memory_detail),
+            asyncio.to_thread(get_memory_detail),
         )
 
         cpu = util.get("cpu", {}).get("user_load", 0)
@@ -100,8 +103,6 @@ def storage_history(hours: int = 168):
     """
     Gibt Speicherbelegung als Zeitreihe zurück — inkl. linearer Prognose für 30 Tage.
     """
-    from datetime import datetime, timedelta
-
     rows = database.get_storage_history(hours)
     if not rows:
         return {"labels": [], "volumes": []}
@@ -216,8 +217,7 @@ async def active_sessions():
 
 @router.get("/stats/shares")
 async def shared_folders():
-    import asyncio as _aio
-    return await _aio.to_thread(get_shared_folder_sizes)
+    return await asyncio.to_thread(get_shared_folder_sizes)
 
 
 @router.get("/stats/disk-health")
@@ -227,8 +227,7 @@ async def disk_health():
 
 @router.get("/logs/syslog", response_class=HTMLResponse)
 async def syslog_entries(request: Request):
-    import asyncio as _aio
-    entries = await _aio.to_thread(get_syslog)
+    entries = await asyncio.to_thread(get_syslog)
     return templates.TemplateResponse(
         "partials/syslog.html",
         {"request": request, "entries": entries},
@@ -237,15 +236,12 @@ async def syslog_entries(request: Request):
 
 @router.get("/system/uptime")
 async def system_uptime():
-    import asyncio as _aio
-    uptime = await _aio.to_thread(get_nas_uptime)
+    uptime = await asyncio.to_thread(get_nas_uptime)
     return {"uptime": uptime}
 
 
 @router.get("/links/status")
 async def links_status():
-    import asyncio as _aio
-    import httpx as _httpx
     from app.services_db import get_sidebar_links
     service_links = get_sidebar_links()
     service_urls = {lnk["url"] for lnk in service_links}
@@ -255,13 +251,13 @@ async def links_status():
 
     async def check(url: str) -> bool:
         try:
-            async with _httpx.AsyncClient(verify=False, timeout=3) as client:
+            async with httpx.AsyncClient(verify=False, timeout=3) as client:
                 r = await client.head(url, follow_redirects=True)
                 return r.status_code < 500
         except Exception:
             return False
 
-    statuses = await _aio.gather(*[check(lnk["url"]) for lnk in links])
+    statuses = await asyncio.gather(*[check(lnk["url"]) for lnk in links])
     for lnk, ok in zip(links, statuses):
         results[lnk["url"]] = ok
     return results
@@ -328,8 +324,7 @@ def paperless(request: Request):
 
 @router.get("/logs", response_class=HTMLResponse)
 async def logs(request: Request):
-    import asyncio as _aio
-    sys_logs_raw, sec_events_raw = await _aio.gather(
+    sys_logs_raw, sec_events_raw = await asyncio.gather(
         synology.get_system_logs(40),
         synology.get_security_events(20),
         return_exceptions=True,
@@ -397,16 +392,14 @@ def _format_security_event(str_id: str, args: dict) -> str:
 
 @router.get("/backup/summary", response_class=HTMLResponse)
 async def backup_summary(request: Request):
-    import asyncio as _aio
-
     try:
         tasks = await synology.get_backup_tasks()
     except Exception:
         tasks = []
 
     # Status + DB-Logs parallel
-    results = await _aio.gather(
-        _aio.to_thread(database.get_last_backup_per_task),
+    results = await asyncio.gather(
+        asyncio.to_thread(database.get_last_backup_per_task),
         *[synology.get_task_status(t["task_id"]) for t in tasks],
         return_exceptions=True,
     )
@@ -446,7 +439,6 @@ async def backup_tasks(request: Request):
         )
 
     # Status aller Tasks parallel abfragen
-    import asyncio as _aio
     statuses = {}
     async def fetch_status(t):
         try:
@@ -454,7 +446,7 @@ async def backup_tasks(request: Request):
             statuses[t["task_id"]] = s
         except Exception:
             statuses[t["task_id"]] = {}
-    await _aio.gather(*[fetch_status(t) for t in tasks])
+    await asyncio.gather(*[fetch_status(t) for t in tasks])
 
     return templates.TemplateResponse(
         "partials/backup_tasks.html",
