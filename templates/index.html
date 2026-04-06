@@ -146,7 +146,7 @@
   .disk-item   { margin-bottom: .5rem; }
   .disk-name   { font-size: .75rem; color: var(--text-muted); display: block; margin-bottom: .2rem;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .disk-label  { font-size: .7rem; color: var(--text-dim); float: right; margin-top: -1.1rem; }
+  .disk-label  { font-size: .7rem; color: var(--text-dim); }
   .disk-divider{ border-top: 1px solid var(--border); margin: .5rem 0; }
   .disk-temp-row{ display: flex; align-items: center; gap: .4rem; margin-top: .15rem; }
   .disk-status-dot{ width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
@@ -476,17 +476,24 @@ function renderCpuCard(d) {
   const el = document.getElementById('card-cpu');
   if (!el) return;
   el.innerHTML = `
-    <div class="stat-label">Auslastung</div>
-    <div class="stat-value-row">
-      <span class="stat-value" id="val-cpu">${d.cpu}%</span>
-      ${d.sys_temp != null ? `<span class="temp-badge ${d.temp_warn ? 'text-danger' : tempColor(d.sys_temp)}">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
-        ${d.sys_temp}°C</span>` : ''}
+    <div style="display:flex;gap:.85rem;align-items:flex-start">
+      <div class="stat-icon cpu-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="15" x2="22" y2="15"/></svg>
+      </div>
+      <div class="stat-body">
+        <div class="stat-label">CPU</div>
+        <div class="stat-value-row">
+          <span class="stat-value" id="val-cpu">${d.cpu}%</span>
+          ${d.sys_temp != null ? `<span class="temp-badge ${d.temp_warn ? 'text-danger' : tempColor(d.sys_temp)}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+            ${d.sys_temp}°C</span>` : ''}
+        </div>
+        <div class="progress-bar" style="margin:.4rem 0">
+          <div class="progress-fill ${d.cpu > 80 ? 'fill-danger' : d.cpu > 60 ? 'fill-warning' : 'fill-ok'}" style="width:${d.cpu}%"></div>
+        </div>
+        ${d.power_est != null ? `<div class="stat-sub">~${d.power_est} W <span style="opacity:.5;font-size:.68rem">(Schätzung)</span></div>` : ''}
+      </div>
     </div>
-    <div class="progress-bar" style="margin:.4rem 0">
-      <div class="progress-fill ${d.cpu > 80 ? 'fill-danger' : d.cpu > 60 ? 'fill-warning' : 'fill-ok'}" style="width:${d.cpu}%"></div>
-    </div>
-    ${d.power_est != null ? `<div class="stat-sub">~${d.power_est} W <span style="opacity:.5;font-size:.68rem">(Schätzung)</span></div>` : ''}
     <div id="process-list"></div>`;
 }
 
@@ -494,28 +501,42 @@ function renderRamCard(d) {
   const el = document.getElementById('card-ram');
   if (!el) return;
   el.innerHTML = `
-    <div class="stat-label">Auslastung</div>
-    <span class="stat-value" id="val-ram">${d.mem_pct}%</span>
-    <div class="stat-sub">${d.mem_used_mb} / ${d.mem_total_mb} MB</div>
-    <div class="progress-bar" style="margin:.4rem 0">
-      <div class="progress-fill ${d.mem_pct > 85 ? 'fill-danger' : d.mem_pct > 70 ? 'fill-warning' : 'fill-ok'}" style="width:${d.mem_pct}%"></div>
-    </div>
-    ${d.mem_app_mb != null ? `
-    <div class="stat-detail-divider"></div>
-    <div class="mem-breakdown">
-      <div class="mem-row"><span class="mem-dot" style="background:var(--purple)"></span><span class="mem-label">Apps</span><span class="mem-val mono">${d.mem_app_mb} MB</span></div>
-      <div class="mem-row"><span class="mem-dot" style="background:var(--cyan)"></span><span class="mem-label">Cache</span><span class="mem-val mono">${d.mem_cache_mb} MB</span></div>
-      <div class="mem-row"><span class="mem-dot" style="background:var(--green)"></span><span class="mem-label">Frei</span><span class="mem-val mono">${d.mem_free_mb} MB</span></div>
-    </div>` : ''}`;
+    <div style="display:flex;gap:.85rem;align-items:flex-start">
+      <div class="stat-icon ram-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+      </div>
+      <div class="stat-body">
+        <div class="stat-label">RAM</div>
+        <span class="stat-value" id="val-ram">${d.mem_pct}%</span>
+        <div class="stat-sub">${d.mem_used_mb} / ${d.mem_total_mb} MB</div>
+        <div class="progress-bar" style="margin:.4rem 0">
+          <div class="progress-fill ${d.mem_pct > 85 ? 'fill-danger' : d.mem_pct > 70 ? 'fill-warning' : 'fill-ok'}" style="width:${d.mem_pct}%"></div>
+        </div>
+        ${d.mem_app_mb != null ? `
+        <div class="stat-detail-divider"></div>
+        <div class="mem-breakdown">
+          <div class="mem-row"><span class="mem-dot" style="background:var(--purple)"></span><span class="mem-label">Apps</span><span class="mem-val mono">${d.mem_app_mb} MB</span></div>
+          <div class="mem-row"><span class="mem-dot" style="background:var(--cyan)"></span><span class="mem-label">Cache</span><span class="mem-val mono">${d.mem_cache_mb} MB</span></div>
+          <div class="mem-row"><span class="mem-dot" style="background:var(--green)"></span><span class="mem-label">Frei</span><span class="mem-val mono">${d.mem_free_mb} MB</span></div>
+        </div>` : ''}
+      </div>
+    </div>`;
 }
 
 function renderNetworkCard(d) {
   const el = document.getElementById('card-network');
   if (!el) return;
   el.innerHTML = `
-    <div class="stat-label">Traffic</div>
-    <span class="stat-value" style="font-size:1.4rem">${d.net_rx_kb} <span style="font-size:.8rem;opacity:.6">KB/s</span></span>
-    <div class="stat-sub">↑ ${d.net_tx_kb} KB/s &nbsp; ↓ ${d.net_rx_kb} KB/s</div>
+    <div style="display:flex;gap:.85rem;align-items:flex-start">
+      <div class="stat-icon net-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <div class="stat-body">
+        <div class="stat-label">Netzwerk</div>
+        <span class="stat-value" style="font-size:1.5rem">${d.net_rx_kb} <span style="font-size:.8rem;opacity:.6">KB/s</span></span>
+        <div class="stat-sub">↑ ${d.net_tx_kb} &nbsp; ↓ ${d.net_rx_kb} KB/s</div>
+      </div>
+    </div>
     <div id="session-list"></div>`;
 }
 
@@ -524,11 +545,13 @@ function renderStorageCard(d) {
   if (!el) return;
   const diskHtml = (d.disks || []).map(disk => `
     <div class="disk-item">
-      <span class="disk-name">${disk.name}</span>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.25rem">
+        <span class="disk-name" style="margin:0">${disk.name}</span>
+        <span class="disk-label">${disk.used_gb} / ${disk.total_gb} GB</span>
+      </div>
       <div class="progress-bar">
         <div class="progress-fill ${disk.pct > 85 ? 'fill-danger' : disk.pct > 70 ? 'fill-warning' : 'fill-ok'}" style="width:${disk.pct}%"></div>
       </div>
-      <span class="disk-label">${disk.used_gb} / ${disk.total_gb} GB</span>
     </div>`).join('');
   const physHtml = (d.phys_disks || []).map(disk => `
     <div class="disk-item">
