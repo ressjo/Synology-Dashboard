@@ -50,11 +50,23 @@ async def collect_stats():
         log.warning("Stats-Sammlung fehlgeschlagen: %s", e)
 
 
+async def check_anomalies():
+    """Prüft Container-CPU und Zustandsänderungen auf Anomalien."""
+    try:
+        from app.anomaly import check_container_anomalies
+        await check_container_anomalies()
+    except Exception as e:
+        log.debug("Anomalie-Job fehlgeschlagen: %s", e)
+
+
 def start_scheduler():
     interval = config["dashboard"].get("stats_interval_seconds", 60)
     scheduler.add_job(collect_stats, "interval", seconds=interval, id="collect_stats")
+    # Anomalie-Check alle 2 Minuten (unabhängig vom Stats-Intervall)
+    scheduler.add_job(check_anomalies, "interval", seconds=120, id="check_anomalies",
+                      misfire_grace_time=30)
     scheduler.start()
-    log.info("Scheduler gestartet (Intervall: %ds)", interval)
+    log.info("Scheduler gestartet (Stats: %ds, Anomalien: 120s)", interval)
 
 
 def stop_scheduler():

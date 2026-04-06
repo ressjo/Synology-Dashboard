@@ -95,6 +95,105 @@ def stats_history(hours: int = 24):
     return rows
 
 
+@router.get("/stats/storage-history")
+def storage_history(hours: int = 168):
+    """
+    Gibt Speicherbelegung als Zeitreihe zurück — inkl. linearer Prognose für 30 Tage.
+    """
+    from datetime import datetime, timedelta
+
+    rows = database.get_storage_history(hours)
+    if not rows:
+        return {"labels": [], "volumes": []}
+
+    # Alle Volumes sammeln
+    vol_names: list[str] = []
+    for row in rows:
+        for d in row["disks"]:
+            if d["name"] not in vol_names:
+                vol_names.append(d["name"])
+
+    COLORS = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444"]
+
+    # Actual-Zeitreihe aufbauen
+    actual_labels = [r["timestamp"][5:16].replace(" ", " ") for r in rows]  # "MM-DD HH:MM"
+    actual_ts = [datetime.strptime(r["timestamp"], "%Y-%m-%d %H:%M:%S") for r in rows]
+
+    volumes_out = []
+    for i, vol in enumerate(vol_names):
+        actual_gb: list[float | None] = []
+        total_gb = 0.0
+        for row in rows:
+            match = next((d for d in row["disks"] if d["name"] == vol), None)
+            if match and match.get("total", 0) > 0:
+                used_gb = round(match["used"] / 1e9, 2)
+                total_gb = round(match["total"] / 1e9, 1)
+                actual_gb.append(used_gb)
+            else:
+                actual_gb.append(None)
+
+        # Lineare Regression für Prognose (nur nicht-None Punkte)
+        valid = [(actual_ts[j], actual_gb[j]) for j in range(len(actual_gb)) if actual_gb[j] is not None]
+        forecast_labels: list[str] = []
+        forecast_gb: list[float | None] = []
+
+        if len(valid) >= 2:
+            t0, v0 = valid[0]
+            t1, v1 = valid[-1]
+            days_elapsed = max((t1 - t0).total_seconds() / 86400, 0.001)
+            daily_growth = (v1 - v0) / days_elapsed  # GB/day
+
+            # 30 Tage Prognose, tägliche Punkte
+            last_ts = actual_ts[-1]
+            last_val = v1
+            for day in range(1, 31):
+                ft = last_ts + timedelta(days=day)
+                fv = round(last_val + daily_growth * day, 2)
+                if total_gb > 0 and fv >= total_gb:
+                    forecast_labels.append(ft.strftime("%m-%d"))
+                    forecast_gb.append(round(total_gb, 2))
+                    break
+                forecast_labels.append(ft.strftime("%m-%d"))
+                forecast_gb.append(max(fv, 0))
+
+        # Forecast-Array muss gleich lang sein wie combined labels
+        # actual_gb hat None für Forecast-Bereich → Chart.js verbindet nicht
+        n_actual = len(actual_gb)
+        n_forecast = len(forecast_gb)
+        combined_actual   = actual_gb + [None] * n_forecast
+        combined_forecast = [None] * (n_actual - 1) + [actual_gb[-1] if actual_gb else None] + forecast_gb
+        combined_labels   = actual_labels + forecast_labels
+
+        volumes_out.append({
+            "name":     vol,
+            "total_gb": total_gb,
+            "color":    COLORS[i % len(COLORS)],
+            "actual":   combined_actual,
+            "forecast": combined_forecast,
+            "labels":   combined_labels,
+        })
+
+    # Gemeinsame Labels (alle Volumes zusammenführen — normalerweise gleich)
+    all_labels = volumes_out[0]["labels"] if volumes_out else []
+    return {"labels": all_labels, "volumes": volumes_out}
+
+
+# ── Notifications ─────────────────────────────────────────────
+
+@router.get("/notifications")
+def get_notifications():
+    return {
+        "notifications": database.get_notifications(30),
+        "unread": database.count_unread_notifications(),
+    }
+
+
+@router.post("/notifications/read-all")
+def read_all_notifications():
+    database.mark_all_notifications_read()
+    return {"status": "ok"}
+
+
 @router.get("/stats/storage-growth")
 def storage_growth():
     return database.get_storage_growth()

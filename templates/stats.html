@@ -20,11 +20,31 @@
 
 <!-- Storage Growth / Forecast -->
 <div class="card card-glow-cyan">
-  <div class="section-title">
-    <i data-feather="trending-up"></i> Storage Wachstum &amp; Prognose
+  <div class="section-title" style="margin-bottom:.75rem">
+    <i data-feather="trending-up"></i> Speicherplatzbelegung &amp; Prognose
+    <div class="btn-group" style="margin-left:auto">
+      <button class="btn btn-ghost active" onclick="loadStorageChart(168, this)">7d</button>
+      <button class="btn btn-ghost" onclick="loadStorageChart(720, this)">30d</button>
+      <button class="btn btn-ghost" onclick="loadStorageChart(2160, this)">90d</button>
+    </div>
   </div>
+  <!-- Growth summary numbers above chart -->
   <div id="storage-growth-content" class="storage-growth-table">
     <div class="text-muted" style="padding:.5rem 0">Lade…</div>
+  </div>
+  <!-- Chart -->
+  <div style="position:relative;height:260px;margin-top:1rem">
+    <canvas id="storageChart"></canvas>
+  </div>
+  <div style="display:flex;align-items:center;gap:1.25rem;margin-top:.5rem;font-size:.72rem;color:var(--text-dim)">
+    <span style="display:flex;align-items:center;gap:.35rem">
+      <span style="width:20px;height:2px;background:currentColor;display:inline-block"></span>
+      Belegung <span style="opacity:.6">(rechts, %)</span>
+    </span>
+    <span style="display:flex;align-items:center;gap:.35rem">
+      <span style="width:20px;height:2px;border-top:2px dashed currentColor;display:inline-block"></span>
+      Prognose <span style="opacity:.6">(links, GB)</span>
+    </span>
   </div>
 </div>
 
@@ -209,6 +229,111 @@ function loadStorageGrowth() {
 }
 
 loadStorageGrowth();
+
+// ── Storage Chart (Belegung % rechts + Prognose GB links) ────
+const storageChartCtx = document.getElementById('storageChart').getContext('2d');
+let storageChart = new Chart(storageChartCtx, {
+  type: 'line',
+  data: { labels: [], datasets: [] },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: true, labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } } },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            if (ctx.parsed.y == null) return null;
+            return ctx.dataset.yAxisID === 'yPct'
+              ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`
+              : `${ctx.dataset.label}: ${ctx.parsed.y} GB`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: '#64748b', maxTicksLimit: 10, maxRotation: 0, font: { size: 10 } },
+        grid:  { color: '#1e293b' }
+      },
+      // Left axis — Prognose in GB
+      yGb: {
+        position: 'left',
+        ticks: { color: '#64748b', callback: v => v + ' GB' },
+        grid:  { color: '#334155' },
+        beginAtZero: false,
+      },
+      // Right axis — Belegung in %
+      yPct: {
+        position: 'right',
+        min: 0,
+        max: 100,
+        ticks: { color: '#94a3b8', callback: v => v + '%' },
+        grid:  { drawOnChartArea: false },
+      }
+    }
+  }
+});
+
+function loadStorageChart(hours, btn) {
+  if (btn) {
+    document.querySelectorAll('.card-glow-cyan .btn-group .btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  fetch(`/api/stats/storage-history?hours=${hours}`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.volumes?.length) {
+        storageChart.data.labels = [];
+        storageChart.data.datasets = [];
+        storageChart.update();
+        return;
+      }
+
+      storageChart.data.labels = data.labels;
+      const datasets = [];
+      data.volumes.forEach(vol => {
+        // Actual → rechte Achse als %
+        if (vol.total_gb > 0) {
+          datasets.push({
+            label: vol.name + ' (Belegung)',
+            data: vol.actual.map(v => v != null ? Math.round(v / vol.total_gb * 1000) / 10 : null),
+            borderColor: vol.color,
+            backgroundColor: vol.color + '18',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            spanGaps: false,
+            yAxisID: 'yPct',
+          });
+        }
+        // Prognose → linke Achse in GB (gestrichelt)
+        if (vol.forecast?.some(v => v != null)) {
+          datasets.push({
+            label: vol.name + ' (Prognose)',
+            data: vol.forecast,
+            borderColor: vol.color,
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            borderDash: [6, 4],
+            fill: false,
+            tension: 0.2,
+            pointRadius: 0,
+            spanGaps: false,
+            yAxisID: 'yGb',
+          });
+        }
+      });
+      storageChart.data.datasets = datasets;
+      storageChart.update();
+    })
+    .catch(() => {});
+}
+
+loadStorageChart(168);
 
 // ── Disk Health ───────────────────────────────────────────────
 function loadDiskHealth() {
