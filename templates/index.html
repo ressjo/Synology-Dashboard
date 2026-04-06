@@ -1,6 +1,158 @@
 {% extends "base.html" %}
-{% block content %}
 
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack.min.css"/>
+{% endblock %}
+
+{% block topbar_actions %}
+<button id="edit-layout-btn" class="btn-topbar" onclick="toggleEditMode()">
+  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+  Layout
+</button>
+<button id="reset-layout-btn" class="btn-topbar btn-topbar-muted" onclick="resetLayout()" title="Layout zurücksetzen" style="display:none">
+  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+  Zurücksetzen
+</button>
+{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Gridstack overrides ──────────────────────────────────── */
+  .grid-stack { background: transparent; }
+  .grid-stack-item-content {
+    display: flex; flex-direction: column;
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .grid-stack-placeholder > .placeholder-content {
+    background: rgba(34,211,238,.06);
+    border: 1px dashed rgba(34,211,238,.3);
+    border-radius: var(--radius);
+  }
+
+  /* ── Widget wrapper ──────────────────────────────────────── */
+  .widget-wrap {
+    display: flex; flex-direction: column; height: 100%;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .widget-header {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .6rem .9rem .5rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .widget-header-icon { opacity: .7; flex-shrink: 0; }
+  .widget-header-icon svg { width: 13px; height: 13px; }
+  .widget-title {
+    font-size: .75rem; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .06em; flex: 1;
+  }
+  .widget-link {
+    font-size: .72rem; color: var(--cyan); text-decoration: none; opacity: .8;
+    transition: opacity .15s;
+  }
+  .widget-link:hover { opacity: 1; }
+  .widget-hide-btn {
+    display: none; /* only in edit mode */
+    width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(255,69,105,.15); border: 1px solid rgba(255,69,105,.3);
+    color: var(--red); font-size: .85rem; line-height: 1;
+    cursor: pointer; align-items: center; justify-content: center;
+    font-family: var(--font); transition: background .15s;
+    flex-shrink: 0;
+  }
+  .widget-hide-btn:hover { background: rgba(255,69,105,.3); }
+  .edit-mode .widget-hide-btn { display: flex; }
+
+  .widget-body {
+    flex: 1; overflow-y: auto; padding: .85rem;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  /* stat cards get no extra padding — they manage their own layout */
+  .widget-body.stat-body { padding: .75rem .85rem; }
+
+  /* ── Edit mode indicator ─────────────────────────────────── */
+  .edit-mode .widget-wrap {
+    border-color: rgba(34,211,238,.35);
+    box-shadow: 0 0 0 1px rgba(34,211,238,.1);
+  }
+  .grid-stack.edit-mode .grid-stack-item > .grid-stack-item-content {
+    cursor: move;
+  }
+  .ui-resizable-handle { opacity: 0; transition: opacity .2s; }
+  .edit-mode .ui-resizable-handle { opacity: 1 !important; }
+  .ui-resizable-se {
+    width: 16px; height: 16px; bottom: 4px; right: 4px;
+    background: rgba(34,211,238,.5); border-radius: 3px;
+  }
+
+  /* ── Hidden widgets panel ────────────────────────────────── */
+  #hidden-panel {
+    display: none; margin-top: 1rem;
+    padding: .85rem 1rem; background: var(--bg-card);
+    border: 1px dashed var(--border); border-radius: var(--radius);
+  }
+  #hidden-panel .panel-label {
+    font-size: .72rem; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .06em; margin-bottom: .6rem;
+  }
+  #hidden-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .hidden-chip {
+    display: flex; align-items: center; gap: .4rem;
+    padding: .3rem .7rem; font-size: .78rem;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 99px; cursor: pointer; color: var(--text-muted);
+    transition: border-color .15s, color .15s;
+  }
+  .hidden-chip:hover { border-color: var(--cyan); color: var(--text); }
+
+  /* ── Topbar buttons ──────────────────────────────────────── */
+  .btn-topbar {
+    display: flex; align-items: center; gap: .4rem;
+    padding: .38rem .75rem; font-size: .78rem; font-weight: 500;
+    background: rgba(34,211,238,.1); border: 1px solid rgba(34,211,238,.25);
+    border-radius: var(--radius-sm); color: var(--cyan); cursor: pointer;
+    font-family: var(--font); transition: background .15s;
+  }
+  .btn-topbar:hover { background: rgba(34,211,238,.18); }
+  .btn-topbar.active {
+    background: rgba(34,211,238,.2); border-color: var(--cyan);
+  }
+  .btn-topbar-muted {
+    background: rgba(255,255,255,.04); border-color: var(--border); color: var(--text-muted);
+  }
+  .btn-topbar-muted:hover { background: rgba(255,255,255,.08); color: var(--text); }
+
+  /* ── Stat card internals ─────────────────────────────────── */
+  .stat-label  { font-size: .72rem; color: var(--text-muted); font-weight: 600;
+                 text-transform: uppercase; letter-spacing: .05em; margin-bottom: .3rem; }
+  .stat-value  { font-size: 1.9rem; font-weight: 700; line-height: 1.1; color: var(--text); }
+  .stat-value-row { display: flex; align-items: baseline; gap: .6rem; }
+  .stat-sub    { font-size: .75rem; color: var(--text-muted); margin-top: .2rem; }
+  .stat-detail-divider { border-top: 1px solid var(--border); margin: .6rem 0; }
+  .mem-breakdown { display: flex; flex-direction: column; gap: .2rem; }
+  .mem-row     { display: flex; align-items: center; gap: .5rem; }
+  .mem-dot     { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .mem-label   { font-size: .73rem; color: var(--text-muted); flex: 1; }
+  .mem-val     { font-size: .73rem; }
+  .process-row { display: flex; align-items: center; gap: .5rem; margin-top: .25rem; }
+  .process-cmd { font-size: .68rem; width: 80px; white-space: nowrap;
+                 overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+  .process-bar-wrap { flex: 1; height: 4px; background: rgba(255,255,255,.07); border-radius: 2px; }
+  .process-bar { height: 4px; border-radius: 2px; background: var(--cyan); min-width: 2px; }
+  .process-pct { font-size: .68rem; color: var(--text-muted); width: 36px; text-align: right; flex-shrink: 0; }
+  .temp-badge  { display: inline-flex; align-items: center; gap: .2rem; font-size: .72rem; font-weight: 600; }
+  .temp-badge svg { width: 11px; height: 11px; }
+  .disk-item   { margin-bottom: .5rem; }
+  .disk-name   { font-size: .75rem; color: var(--text-muted); display: block; margin-bottom: .2rem;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .disk-label  { font-size: .7rem; color: var(--text-dim); float: right; margin-top: -1.1rem; }
+  .disk-divider{ border-top: 1px solid var(--border); margin: .5rem 0; }
+  .disk-temp-row{ display: flex; align-items: center; gap: .4rem; margin-top: .15rem; }
+  .disk-status-dot{ width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+</style>
+
+<!-- Page header -->
 <div class="page-header">
   <h1>Dashboard</h1>
   {% if sys_info %}
@@ -18,98 +170,294 @@
   {% endif %}
 </div>
 
-<!-- Live Stats Cards (JS polled) -->
-<div id="stats-cards-inner" class="stats-grid">
-  <div class="card stat-card loading">Lade...</div>
+<!-- ── Dashboard Grid ─────────────────────────────────────────── -->
+<div class="grid-stack" id="dashboard-grid">
+
+  <!-- CPU -->
+  <div class="grid-stack-item" gs-id="cpu" gs-x="0" gs-y="0" gs-w="3" gs-h="7" gs-min-w="2" gs-min-h="4">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="15" x2="22" y2="15"/></svg></span>
+          <span class="widget-title">CPU</span>
+          <button class="widget-hide-btn" onclick="hideWidget('cpu')">×</button>
+        </div>
+        <div class="widget-body stat-body" id="card-cpu"><div class="text-muted text-small">Lade…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RAM -->
+  <div class="grid-stack-item" gs-id="ram" gs-x="3" gs-y="0" gs-w="3" gs-h="7" gs-min-w="2" gs-min-h="4">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
+          <span class="widget-title">RAM</span>
+          <button class="widget-hide-btn" onclick="hideWidget('ram')">×</button>
+        </div>
+        <div class="widget-body stat-body" id="card-ram"><div class="text-muted text-small">Lade…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Netzwerk -->
+  <div class="grid-stack-item" gs-id="network" gs-x="6" gs-y="0" gs-w="3" gs-h="7" gs-min-w="2" gs-min-h="4">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+          <span class="widget-title">Netzwerk</span>
+          <button class="widget-hide-btn" onclick="hideWidget('network')">×</button>
+        </div>
+        <div class="widget-body stat-body" id="card-network"><div class="text-muted text-small">Lade…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Speicher -->
+  <div class="grid-stack-item" gs-id="storage" gs-x="9" gs-y="0" gs-w="3" gs-h="7" gs-min-w="2" gs-min-h="4">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span>
+          <span class="widget-title">Speicher</span>
+          <button class="widget-hide-btn" onclick="hideWidget('storage')">×</button>
+        </div>
+        <div class="widget-body stat-body" id="card-storage"><div class="text-muted text-small">Lade…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Freigegebene Ordner -->
+  <div class="grid-stack-item" gs-id="shares" gs-x="0" gs-y="7" gs-w="6" gs-h="5" gs-min-w="3" gs-min-h="3">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+          <span class="widget-title">Freigegebene Ordner</span>
+          <button class="widget-hide-btn" onclick="hideWidget('shares')">×</button>
+        </div>
+        <div class="widget-body" id="card-shares"><div class="text-muted text-small">Lade…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Paperless (nur wenn konfiguriert) -->
+  {% if has_paperless %}
+  <div class="grid-stack-item" gs-id="paperless" gs-x="6" gs-y="7" gs-w="6" gs-h="5" gs-min-w="3" gs-min-h="3">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+          <span class="widget-title">Paperless</span>
+          <a href="{{ paperless_url }}" target="_blank" class="widget-link">Öffnen →</a>
+          <button class="widget-hide-btn" onclick="hideWidget('paperless')">×</button>
+        </div>
+        <div class="widget-body"
+             id="card-paperless"
+             hx-get="/api/paperless"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+          <div class="text-muted text-small">Lade…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- HyperBackup -->
+  <div class="grid-stack-item" gs-id="backup"
+       gs-x="{{ '0' if has_paperless else '6' }}" gs-y="7"
+       gs-w="6" gs-h="5" gs-min-w="3" gs-min-h="3">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg></span>
+          <span class="widget-title">HyperBackup</span>
+          <a href="/backup" class="widget-link">Details →</a>
+          <button class="widget-hide-btn" onclick="hideWidget('backup')">×</button>
+        </div>
+        <div class="widget-body"
+             id="card-backup"
+             hx-get="/api/backup/summary"
+             hx-trigger="load, every 60s"
+             hx-swap="innerHTML">
+          <div class="text-muted text-small">Lade…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wichtige Meldungen -->
+  <div class="grid-stack-item" gs-id="logs"
+       gs-x="{{ '6' if has_paperless else '0' }}" gs-y="7"
+       gs-w="6" gs-h="5" gs-min-w="3" gs-min-h="3">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+          <span class="widget-title">Wichtige Meldungen</span>
+          <a href="/logs" class="widget-link">Alle Logs →</a>
+          <button class="widget-hide-btn" onclick="hideWidget('logs')">×</button>
+        </div>
+        <div class="widget-body" style="padding:0;overflow:hidden"
+             id="card-logs"
+             hx-get="/api/logs"
+             hx-trigger="load"
+             hx-swap="innerHTML"
+             hx-on::after-swap="filterPreview()">
+          <div class="text-muted text-small" style="padding:.85rem">Lade…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.grid-stack -->
+
+<!-- Hidden widgets panel (only visible in edit mode) -->
+<div id="hidden-panel">
+  <div class="panel-label">Versteckte Widgets — klicken zum Einblenden</div>
+  <div id="hidden-chips"></div>
 </div>
-
-<!-- Shared Folders -->
-<section>
-  <h2 class="section-title">
-    <i data-feather="folder"></i> Freigegebene Ordner
-  </h2>
-  <div class="card" id="shares-widget">
-    <div class="text-muted text-small">Lade…</div>
-  </div>
-</section>
-
-<!-- Paperless Widget -->
-<section>
-  <h2 class="section-title">
-    <i data-feather="file-text"></i> Paperless
-    <a href="{{ paperless_url }}" target="_blank" class="section-link">Öffnen →</a>
-  </h2>
-  <div id="paperless-widget"
-       hx-get="/api/paperless"
-       hx-trigger="load"
-       hx-swap="innerHTML">
-    <div class="card"><span class="text-muted">Lade...</span></div>
-  </div>
-</section>
-
-<!-- HyperBackup Zusammenfassung -->
-<section>
-  <h2 class="section-title">
-    <i data-feather="archive"></i> HyperBackup
-    <a href="/backup" class="section-link">Details →</a>
-  </h2>
-  <div class="card"
-       id="backup-summary-widget"
-       hx-get="/api/backup/summary"
-       hx-trigger="load, every 60s"
-       hx-swap="innerHTML">
-    <div class="text-muted">Lade…</div>
-  </div>
-</section>
-
-<!-- Log-Vorschau (nur Warnings + Errors) -->
-<section>
-  <h2 class="section-title">
-    <i data-feather="alert-triangle"></i> Wichtige Meldungen
-    <a href="/logs" class="section-link">Alle Logs →</a>
-  </h2>
-  <div class="card" style="padding:0;overflow:hidden"
-       id="log-preview"
-       hx-get="/api/logs"
-       hx-trigger="load"
-       hx-swap="innerHTML"
-       hx-on::after-swap="filterPreview()">
-    <div class="log-empty">Lade...</div>
-  </div>
-</section>
-
 
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
 <script>
-// ── Log-Vorschau ──────────────────────────────────────────────
-function filterPreview() {
-  const entries = document.querySelectorAll('#log-preview .log-entry');
-  let shown = 0;
-  entries.forEach(el => {
-    const isImportant = el.classList.contains('log-error') || el.classList.contains('log-warning');
-    if (isImportant && shown < 5) { el.style.display = ''; shown++; }
-    else { el.style.display = 'none'; }
+// ── Constants ────────────────────────────────────────────────
+const LAYOUT_KEY  = 'dashboard-layout-v2';
+const HIDDEN_KEY  = 'dashboard-hidden-v2';
+const CELL_HEIGHT = 60;
+const COL         = 12;
+
+const WIDGET_LABELS = {
+  cpu:      'CPU',
+  ram:      'RAM',
+  network:  'Netzwerk',
+  storage:  'Speicher',
+  shares:   'Freigegebene Ordner',
+  paperless:'Paperless',
+  backup:   'HyperBackup',
+  logs:     'Wichtige Meldungen',
+};
+
+// ── Gridstack init ───────────────────────────────────────────
+let grid;
+let editMode = false;
+let hiddenWidgets = new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]'));
+
+function initGrid() {
+  // Hide widgets that were previously hidden by the user
+  hiddenWidgets.forEach(id => {
+    const el = document.querySelector(`.grid-stack-item[gs-id="${id}"]`);
+    if (el) el.style.display = 'none';
   });
-  if (shown === 0) {
-    const feed = document.querySelector('#log-preview .log-feed');
-    if (feed) feed.innerHTML = '<div class="log-empty text-ok"><i data-feather="check-circle"></i> Keine Warnungen</div>';
+
+  grid = GridStack.init({
+    column: COL,
+    cellHeight: CELL_HEIGHT,
+    margin: 8,
+    animate: true,
+    float: false,
+    staticGrid: true,         // drag/resize off by default
+    resizable: { handles: 'se' },
+  }, '#dashboard-grid');
+
+  // Restore saved layout if available
+  const saved = loadLayout();
+  if (saved) {
+    grid.load(saved);
   }
-  feather.replace();
+
+  // Auto-save on any layout change
+  grid.on('change', () => saveLayout());
+
+  updateHiddenPanel();
+}
+
+// ── Layout persistence ───────────────────────────────────────
+function saveLayout() {
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(grid.save(false)));
+}
+
+function loadLayout() {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function resetLayout() {
+  localStorage.removeItem(LAYOUT_KEY);
+  localStorage.removeItem(HIDDEN_KEY);
+  location.reload();
+}
+
+// ── Edit mode ────────────────────────────────────────────────
+function toggleEditMode() {
+  editMode = !editMode;
+  const btn = document.getElementById('edit-layout-btn');
+  const resetBtn = document.getElementById('reset-layout-btn');
+  const gridEl = document.getElementById('dashboard-grid');
+  const panel = document.getElementById('hidden-panel');
+
+  grid.setStatic(!editMode);
+  gridEl.classList.toggle('edit-mode', editMode);
+  btn.classList.toggle('active', editMode);
+  btn.innerHTML = editMode
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Fertig`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Layout`;
+
+  panel.style.display = editMode && hiddenWidgets.size > 0 ? 'block' : 'none';
+  resetBtn.style.display = editMode ? 'inline-flex' : 'none';
+}
+
+// ── Widget hide / show ───────────────────────────────────────
+function hideWidget(id) {
+  const el = document.querySelector(`.grid-stack-item[gs-id="${id}"]`);
+  if (!el) return;
+  grid.removeWidget(el, false); // remove from grid, keep in DOM
+  el.style.display = 'none';
+  hiddenWidgets.add(id);
+  localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hiddenWidgets]));
+  saveLayout();
+  updateHiddenPanel();
+}
+
+function showWidget(id) {
+  const el = document.querySelector(`.grid-stack-item[gs-id="${id}"]`);
+  if (!el) return;
+  el.style.display = '';
+  grid.makeWidget(el);
+  hiddenWidgets.delete(id);
+  localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hiddenWidgets]));
+  saveLayout();
+  updateHiddenPanel();
+}
+
+function updateHiddenPanel() {
+  const panel = document.getElementById('hidden-panel');
+  const chips = document.getElementById('hidden-chips');
+  chips.innerHTML = [...hiddenWidgets].map(id => `
+    <div class="hidden-chip" onclick="showWidget('${id}')">
+      <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      ${WIDGET_LABELS[id] || id}
+    </div>`).join('');
+  if (editMode) panel.style.display = hiddenWidgets.size > 0 ? 'block' : 'none';
 }
 
 // ── Animations ───────────────────────────────────────────────
 function animateCounter(el, target, duration = 800) {
   const isFloat = !Number.isInteger(target);
   const start = parseFloat(el.textContent.replace(/[^0-9.]/g, '')) || 0;
-  if (Math.abs(target - start) < 0.5) return; // skip tiny changes
+  if (Math.abs(target - start) < 0.5) return;
   const startTime = performance.now();
   function tick(now) {
-    const p = Math.min((now - startTime) / duration, 1);
-    const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
-    const val = start + (target - start) * eased;
-    el.textContent = isFloat ? val.toFixed(1) : Math.round(val);
+    const p    = Math.min((now - startTime) / duration, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    el.textContent = isFloat ? (start + (target - start) * ease).toFixed(1) : Math.round(start + (target - start) * ease);
     if (p < 1) requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -117,317 +465,244 @@ function animateCounter(el, target, duration = 800) {
 
 function flashValue(el) {
   el.classList.remove('stat-value-flash');
-  void el.offsetWidth; // reflow to restart animation
+  void el.offsetWidth;
   el.classList.add('stat-value-flash');
 }
 
-// ── Prozesse (in CPU-Karte) ───────────────────────────────────
-function loadProcesses() {
-  fetch('/api/stats/processes')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('process-list');
-      if (!el) return;
-      if (!data.length) {
-        el.innerHTML = '<div class="text-muted text-small" style="margin-top:.5rem">Keine Daten</div>';
-        return;
-      }
-      const max = Math.max(data[0]?.cpu || 1, 1);
-      el.innerHTML = '<div class="stat-detail-divider"></div>' + data.map(p => `
-        <div class="process-row">
-          <span class="process-cmd mono">${p.cmd}</span>
-          <div class="process-bar-wrap">
-            <div class="process-bar" style="width:${Math.min(p.cpu / max * 100, 100)}%"></div>
-          </div>
-          <span class="process-pct mono">${p.cpu.toFixed(1)}%</span>
-        </div>
-      `).join('');
-    })
-    .catch(() => {
-      const el = document.getElementById('process-list');
-      if (el) el.innerHTML = '<div class="text-muted text-small" style="margin-top:.4rem">SSH nicht erreichbar</div>';
-    });
-}
+// ── Per-card renderers ───────────────────────────────────────
+const tempColor = t => t == null ? '' : t >= 60 ? 'text-danger' : t >= 50 ? 'text-warning' : 'text-ok';
 
-// ── Aktive Sitzungen (in Netzwerk-Karte) ─────────────────────
-function loadSessions() {
-  fetch('/api/stats/sessions')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('session-list');
-      if (!el) return;
-      if (!data.length) {
-        el.innerHTML = '<div class="stat-detail-divider"></div><div class="text-muted text-small">Keine aktiven Sitzungen</div>';
-        return;
-      }
-      const protoIcon = p => {
-        if (p.includes('SSH'))   return '⌨';
-        if (p.includes('SMB') || p.includes('CIFS')) return '🗂';
-        if (p.includes('FTP'))   return '📁';
-        return '🌐';
-      };
-      el.innerHTML = '<div class="stat-detail-divider"></div>' + data.map((s, i) => `
-        <div style="padding:.25rem 0${i < data.length - 1 ? ';border-bottom:1px solid var(--border)' : ''}">
-          <div style="display:flex;align-items:center;gap:.5rem">
-            <span style="font-size:.78rem;font-weight:600">${s.user}</span>
-            <span class="text-muted" style="font-size:.7rem">${protoIcon(s.protocol)} ${s.protocol}</span>
-          </div>
-          <div class="mono" style="font-size:.67rem;color:var(--text-dim);margin-top:.1rem">${s.from_ip}</div>
-        </div>
-      `).join('');
-    })
-    .catch(() => {
-      const el = document.getElementById('session-list');
-      if (el) el.innerHTML = '<div class="text-muted text-small" style="margin-top:.4rem">Nicht erreichbar</div>';
-    });
-}
-
-// ── Stats-Cards rendern ───────────────────────────────────────
-function pollStats() {
-  fetch('/api/stats/live')
-    .then(r => r.json())
-    .then(d => renderStatsCards(d))
-    .catch(() => {});
-}
-pollStats();
-setInterval(pollStats, {{ refresh }} * 1000);
-
-function renderStatsCards(d) {
-  const el = document.getElementById("stats-cards-inner");
+function renderCpuCard(d) {
+  const el = document.getElementById('card-cpu');
   if (!el) return;
+  el.innerHTML = `
+    <div class="stat-label">Auslastung</div>
+    <div class="stat-value-row">
+      <span class="stat-value" id="val-cpu">${d.cpu}%</span>
+      ${d.sys_temp != null ? `<span class="temp-badge ${d.temp_warn ? 'text-danger' : tempColor(d.sys_temp)}">
+        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+        ${d.sys_temp}°C</span>` : ''}
+    </div>
+    <div class="progress-bar" style="margin:.4rem 0">
+      <div class="progress-fill ${d.cpu > 80 ? 'fill-danger' : d.cpu > 60 ? 'fill-warning' : 'fill-ok'}" style="width:${d.cpu}%"></div>
+    </div>
+    ${d.power_est != null ? `<div class="stat-sub">~${d.power_est} W <span style="opacity:.5;font-size:.68rem">(Schätzung)</span></div>` : ''}
+    <div id="process-list"></div>`;
+}
 
-  // Save sub-content BEFORE wiping the DOM — we still own the DOM here
-  const prevProcesses = document.getElementById('process-list')?.innerHTML ?? null;
-  const prevSessions  = document.getElementById('session-list')?.innerHTML ?? null;
-  const prevGrowth    = document.getElementById('storage-growth-list')?.innerHTML ?? null;
+function renderRamCard(d) {
+  const el = document.getElementById('card-ram');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="stat-label">Auslastung</div>
+    <span class="stat-value" id="val-ram">${d.mem_pct}%</span>
+    <div class="stat-sub">${d.mem_used_mb} / ${d.mem_total_mb} MB</div>
+    <div class="progress-bar" style="margin:.4rem 0">
+      <div class="progress-fill ${d.mem_pct > 85 ? 'fill-danger' : d.mem_pct > 70 ? 'fill-warning' : 'fill-ok'}" style="width:${d.mem_pct}%"></div>
+    </div>
+    ${d.mem_app_mb != null ? `
+    <div class="stat-detail-divider"></div>
+    <div class="mem-breakdown">
+      <div class="mem-row"><span class="mem-dot" style="background:var(--purple)"></span><span class="mem-label">Apps</span><span class="mem-val mono">${d.mem_app_mb} MB</span></div>
+      <div class="mem-row"><span class="mem-dot" style="background:var(--cyan)"></span><span class="mem-label">Cache</span><span class="mem-val mono">${d.mem_cache_mb} MB</span></div>
+      <div class="mem-row"><span class="mem-dot" style="background:var(--green)"></span><span class="mem-label">Frei</span><span class="mem-val mono">${d.mem_free_mb} MB</span></div>
+    </div>` : ''}`;
+}
 
+function renderNetworkCard(d) {
+  const el = document.getElementById('card-network');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="stat-label">Traffic</div>
+    <span class="stat-value" style="font-size:1.4rem">${d.net_rx_kb} <span style="font-size:.8rem;opacity:.6">KB/s</span></span>
+    <div class="stat-sub">↑ ${d.net_tx_kb} KB/s &nbsp; ↓ ${d.net_rx_kb} KB/s</div>
+    <div id="session-list"></div>`;
+}
+
+function renderStorageCard(d) {
+  const el = document.getElementById('card-storage');
+  if (!el) return;
   const diskHtml = (d.disks || []).map(disk => `
     <div class="disk-item">
       <span class="disk-name">${disk.name}</span>
       <div class="progress-bar">
-        <div class="progress-fill ${disk.pct > 85 ? 'fill-danger' : disk.pct > 70 ? 'fill-warning' : 'fill-ok'}"
-             style="width: ${disk.pct}%"></div>
+        <div class="progress-fill ${disk.pct > 85 ? 'fill-danger' : disk.pct > 70 ? 'fill-warning' : 'fill-ok'}" style="width:${disk.pct}%"></div>
       </div>
       <span class="disk-label">${disk.used_gb} / ${disk.total_gb} GB</span>
-    </div>
-  `).join("");
-
-  const tempColor = t => t == null ? '' : t >= 60 ? 'text-danger' : t >= 50 ? 'text-warning' : 'text-ok';
-  const tempBadge = (t, warn) => t == null ? '' :
-    `<span class="temp-badge ${warn ? 'text-danger' : tempColor(t)}"><i data-feather="thermometer"></i>${t}°C</span>`;
-
-  const physDiskHtml = (d.phys_disks || []).map(disk => `
+    </div>`).join('');
+  const physHtml = (d.phys_disks || []).map(disk => `
     <div class="disk-item">
       <span class="disk-name">${disk.name}</span>
       <div class="disk-temp-row">
-        ${disk.temp != null ? `<span class="temp-badge ${tempColor(disk.temp)}"><i data-feather="thermometer"></i>${disk.temp}°C</span>` : ''}
-        <span class="disk-status-dot status-${disk.status === 'normal' ? 'running' : 'stopped'}" style="width:7px;height:7px;border-radius:50%;display:inline-block"></span>
-        <span class="text-muted" style="font-size:.72rem">${disk.status}</span>
+        ${disk.temp != null ? `<span class="temp-badge ${tempColor(disk.temp)}"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>${disk.temp}°C</span>` : ''}
+        <span class="disk-status-dot status-${disk.status === 'normal' ? 'running' : 'stopped'}"></span>
+        <span class="text-muted" style="font-size:.7rem">${disk.status}</span>
       </div>
-    </div>
-  `).join("");
-
+    </div>`).join('');
   el.innerHTML = `
-    <div class="card stat-card stat-card-tall">
-      <div class="stat-icon cpu-icon"><i data-feather="cpu"></i></div>
-      <div class="stat-body">
-        <div class="stat-label">CPU</div>
-        <div class="stat-value-row">
-          <span class="stat-value">${d.cpu}%</span>
-          ${tempBadge(d.sys_temp, d.temp_warn)}
-        </div>
-        <div class="progress-bar"><div class="progress-fill ${d.cpu > 80 ? 'fill-danger' : d.cpu > 60 ? 'fill-warning' : 'fill-ok'}" style="width:${d.cpu}%"></div></div>
-        ${d.power_est != null ? `<div class="stat-sub" style="margin-top:.35rem"><i data-feather="zap" style="width:11px;height:11px"></i> ~${d.power_est} W <span style="opacity:.5;font-size:.7rem">(Schätzung)</span></div>` : ''}
-        <div id="process-list"></div>
-      </div>
-    </div>
-    <div class="card stat-card stat-card-tall">
-      <div class="stat-icon ram-icon"><i data-feather="database"></i></div>
-      <div class="stat-body">
-        <div class="stat-label">RAM</div>
-        <div class="stat-value">${d.mem_pct}%</div>
-        <div class="stat-sub">${d.mem_used_mb} / ${d.mem_total_mb} MB</div>
-        <div class="progress-bar"><div class="progress-fill ${d.mem_pct > 85 ? 'fill-danger' : d.mem_pct > 70 ? 'fill-warning' : 'fill-ok'}" style="width:${d.mem_pct}%"></div></div>
-        ${(d.mem_app_mb != null) ? `
-        <div class="stat-detail-divider"></div>
-        <div class="mem-breakdown">
-          <div class="mem-row">
-            <span class="mem-dot" style="background:var(--purple)"></span>
-            <span class="mem-label">Apps</span>
-            <span class="mem-val mono">${d.mem_app_mb} MB</span>
-          </div>
-          <div class="mem-row">
-            <span class="mem-dot" style="background:var(--cyan)"></span>
-            <span class="mem-label">Cache</span>
-            <span class="mem-val mono">${d.mem_cache_mb} MB</span>
-          </div>
-          <div class="mem-row">
-            <span class="mem-dot" style="background:var(--green)"></span>
-            <span class="mem-label">Frei</span>
-            <span class="mem-val mono">${d.mem_free_mb} MB</span>
-          </div>
-        </div>` : ''}
-      </div>
-    </div>
-    <div class="card stat-card stat-card-tall">
-      <div class="stat-icon net-icon"><i data-feather="activity"></i></div>
-      <div class="stat-body">
-        <div class="stat-label">Netzwerk</div>
-        <div class="stat-value">${d.net_rx_kb} KB/s</div>
-        <div class="stat-sub">↑ ${d.net_tx_kb} KB/s &nbsp; ↓ ${d.net_rx_kb} KB/s</div>
-        <div id="session-list"></div>
-      </div>
-    </div>
-    <div class="card stat-card disk-card">
-      <div class="stat-icon disk-icon"><i data-feather="hard-drive"></i></div>
-      <div class="stat-body">
-        <div class="stat-label">Speicher</div>
-        ${diskHtml || '<div class="stat-sub">Keine Volumes</div>'}
-        ${physDiskHtml ? `<div class="disk-divider"></div>${physDiskHtml}` : ''}
-        <div id="storage-growth-list"></div>
-      </div>
-    </div>
-  `;
-  feather.replace();
-
-  // Counter + Flash für CPU und RAM
-  const cpuEl = el.querySelector('.stat-value');
-  if (cpuEl) {
-    const prev = parseFloat(cpuEl.dataset.prev);
-    const cur  = d.cpu;
-    if (!isNaN(prev) && Math.abs(cur - prev) >= 2) flashValue(cpuEl);
-    animateCounter(cpuEl, cur);
-    cpuEl.dataset.prev = cur;
-  }
-  const ramEl = el.querySelectorAll('.stat-value')[1];
-  if (ramEl) animateCounter(ramEl, d.mem_pct);
-
-  // Restore previous content immediately (no flicker), then refresh in background
-  if (prevProcesses !== null) {
-    const pl = document.getElementById('process-list');
-    if (pl) pl.innerHTML = prevProcesses;
-  }
-  if (prevSessions !== null) {
-    const sl = document.getElementById('session-list');
-    if (sl) sl.innerHTML = prevSessions;
-  }
-  if (prevGrowth !== null) {
-    const gl = document.getElementById('storage-growth-list');
-    if (gl) gl.innerHTML = prevGrowth;
-  }
-
-  // First render (no saved content yet) → fetch immediately
-  if (prevProcesses === null) loadProcesses();
-  if (prevSessions === null)  loadSessions();
-  if (prevGrowth === null)    loadStorageGrowth();
+    <div class="stat-label">Volumes</div>
+    ${diskHtml || '<div class="stat-sub">Keine Volumes</div>'}
+    ${physHtml ? `<div class="disk-divider"></div>${physHtml}` : ''}
+    <div id="storage-growth-list"></div>`;
 }
 
-// ── Storage Growth (in Speicher-Karte) ───────────────────────
-function loadStorageGrowth() {
-  fetch('/api/stats/storage-growth')
+// ── Stats poll ───────────────────────────────────────────────
+let firstRender = true;
+function pollStats() {
+  fetch('/api/stats/live')
     .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('storage-growth-list');
-      if (!el) return;
+    .then(d => {
+      const wasFirst = firstRender;
+      firstRender = false;
 
-      el.innerHTML = '<div class="stat-detail-divider"></div>';
-
-      if (!data.length) {
-        el.innerHTML += '<div class="mem-row"><span class="mem-label text-dim" style="font-size:.7rem">Daten werden gesammelt…</span></div>';
-        return;
+      // Animate CPU value if card already rendered
+      const cpuVal = document.getElementById('val-cpu');
+      if (cpuVal) {
+        const prev = parseFloat(cpuVal.dataset.prev);
+        if (!isNaN(prev) && Math.abs(d.cpu - prev) >= 2) flashValue(cpuVal);
+        animateCounter(cpuVal, d.cpu);
+        cpuVal.dataset.prev = d.cpu;
       }
+      const ramVal = document.getElementById('val-ram');
+      if (ramVal) animateCounter(ramVal, d.mem_pct);
 
-      // Bevorzuge 7d, fallback auf kleinste verfügbare Periode
-      const periods = [7, 30];
-      let bestRows = [];
-      let usedPeriod = 0;
-      for (const p of periods) {
-        const rows = data.filter(r => r.period_days === p);
-        if (rows.length) { bestRows = rows; usedPeriod = p; break; }
-      }
+      // Save sub-lists before re-render
+      const prevProc = document.getElementById('process-list')?.innerHTML ?? null;
+      const prevSess = document.getElementById('session-list')?.innerHTML ?? null;
+      const prevGrow = document.getElementById('storage-growth-list')?.innerHTML ?? null;
 
-      if (!bestRows.length) {
-        el.innerHTML += '<div class="mem-row"><span class="mem-label text-dim" style="font-size:.7rem">Daten werden gesammelt…</span></div>';
-        return;
-      }
+      renderCpuCard(d);
+      renderRamCard(d);
+      renderNetworkCard(d);
+      renderStorageCard(d);
+      feather.replace();
 
-      el.innerHTML += bestRows.map(r => {
-        const sign = r.growth_gb >= 0 ? '+' : '';
-        const growthStr = `${sign}${r.growth_gb.toFixed(2)} GB`;
-        const growthCls = r.growth_gb > 5 ? 'text-warning' : r.growth_gb < 0 ? 'text-ok' : '';
+      // Restore sub-lists
+      const pl = document.getElementById('process-list');
+      const sl = document.getElementById('session-list');
+      const gl = document.getElementById('storage-growth-list');
+      if (prevProc !== null && pl) pl.innerHTML = prevProc;
+      if (prevSess !== null && sl) sl.innerHTML = prevSess;
+      if (prevGrow !== null && gl) gl.innerHTML = prevGrow;
 
-        let forecastStr = '–';
-        let forecastCls = 'text-muted';
-        if (r.days_until_full === null) {
-          forecastStr = 'kein Wachstum'; forecastCls = 'text-muted';
-        } else if (r.days_until_full > 365) {
-          forecastStr = `~${Math.round(r.days_until_full / 365)} Jahre`;
-        } else if (r.days_until_full > 60) {
-          forecastStr = `~${Math.round(r.days_until_full / 30)} Monate`; forecastCls = 'text-ok';
-        } else if (r.days_until_full > 14) {
-          forecastStr = `~${r.days_until_full} Tage`; forecastCls = 'text-warning';
-        } else {
-          forecastStr = `~${r.days_until_full} Tage!`; forecastCls = 'text-danger';
-        }
-
-        return `
-          <div class="mem-row">
-            <span class="mem-label">Wachstum ${usedPeriod}d</span>
-            <span class="mem-val mono ${growthCls}">${growthStr}</span>
-          </div>
-          <div class="mem-row">
-            <span class="mem-label">Prognose voll</span>
-            <span class="mem-val mono ${forecastCls}">${forecastStr}</span>
-          </div>`;
-      }).join('');
-    })
-    .catch(() => {
-      const el = document.getElementById('storage-growth-list');
-      if (el) el.innerHTML = '';
-    });
-}
-
-// Intervall-Refresh unabhängig vom Stats-Poll
-setInterval(loadProcesses,     15000);
-setInterval(loadSessions,      30000);
-setInterval(loadStorageGrowth, 300000); // alle 5 Min reicht
-
-// ── Shared Folders ────────────────────────────────────────────
-function loadShares() {
-  fetch('/api/stats/shares')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('shares-widget');
-      if (!el) return;
-      if (data.error || !data.folders?.length) {
-        el.innerHTML = '<div class="text-muted text-small">SSH nicht erreichbar</div>';
-        return;
-      }
-      const volTotal = data.volume_total_mb || 0;
-      el.innerHTML = `
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem">
-          ${data.folders.map(f => {
-            const pct = volTotal > 0 ? Math.min(f.size_mb / volTotal * 100, 100) : 0;
-            const gb  = f.size_mb >= 1024
-              ? (f.size_mb / 1024).toFixed(1) + ' GB'
-              : f.size_mb + ' MB';
-            const fillCls = pct > 80 ? 'fill-danger' : pct > 60 ? 'fill-warning' : 'fill-ok';
-            return `
-              <div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:.25rem">
-                  <span class="text-small" style="font-weight:500">${f.name}</span>
-                  <span class="mono text-small text-muted">${gb}</span>
-                </div>
-                <div class="progress-bar" style="height:5px">
-                  <div class="progress-fill ${fillCls}" style="width:${pct}%"></div>
-                </div>
-              </div>`;
-          }).join('')}
-        </div>`;
+      // First render → load sub-data immediately
+      if (wasFirst) { loadProcesses(); loadSessions(); loadStorageGrowth(); }
     })
     .catch(() => {});
 }
+
+// ── Sub-widget loaders ───────────────────────────────────────
+function loadProcesses() {
+  fetch('/api/stats/processes').then(r => r.json()).then(data => {
+    const el = document.getElementById('process-list');
+    if (!el) return;
+    if (!data.length) { el.innerHTML = '<div class="stat-detail-divider"></div><div class="text-muted text-small">Keine Daten</div>'; return; }
+    const max = Math.max(data[0]?.cpu || 1, 1);
+    el.innerHTML = '<div class="stat-detail-divider"></div>' + data.map(p => `
+      <div class="process-row">
+        <span class="process-cmd mono">${p.cmd}</span>
+        <div class="process-bar-wrap"><div class="process-bar" style="width:${Math.min(p.cpu / max * 100, 100)}%"></div></div>
+        <span class="process-pct mono">${p.cpu.toFixed(1)}%</span>
+      </div>`).join('');
+  }).catch(() => {
+    const el = document.getElementById('process-list');
+    if (el) el.innerHTML = '<div class="stat-detail-divider"></div><div class="text-muted text-small">SSH nicht erreichbar</div>';
+  });
+}
+
+function loadSessions() {
+  fetch('/api/stats/sessions').then(r => r.json()).then(data => {
+    const el = document.getElementById('session-list');
+    if (!el) return;
+    if (!data.length) { el.innerHTML = '<div class="stat-detail-divider"></div><div class="text-muted text-small">Keine aktiven Sitzungen</div>'; return; }
+    const protoIcon = p => p.includes('SSH') ? '⌨' : (p.includes('SMB') || p.includes('CIFS')) ? '🗂' : p.includes('FTP') ? '📁' : '🌐';
+    el.innerHTML = '<div class="stat-detail-divider"></div>' + data.map((s, i) => `
+      <div style="padding:.2rem 0${i < data.length - 1 ? ';border-bottom:1px solid var(--border)' : ''}">
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <span style="font-size:.75rem;font-weight:600">${s.user}</span>
+          <span class="text-muted" style="font-size:.68rem">${protoIcon(s.protocol)} ${s.protocol}</span>
+        </div>
+        <div class="mono" style="font-size:.65rem;color:var(--text-dim)">${s.from_ip}</div>
+      </div>`).join('');
+  }).catch(() => {
+    const el = document.getElementById('session-list');
+    if (el) el.innerHTML = '<div class="text-muted text-small" style="margin-top:.4rem">Nicht erreichbar</div>';
+  });
+}
+
+function loadStorageGrowth() {
+  fetch('/api/stats/storage-growth').then(r => r.json()).then(data => {
+    const el = document.getElementById('storage-growth-list');
+    if (!el) return;
+    el.innerHTML = '<div class="stat-detail-divider"></div>';
+    if (!data.length) { el.innerHTML += '<div class="mem-row"><span class="mem-label text-dim" style="font-size:.68rem">Daten werden gesammelt…</span></div>'; return; }
+    const bestRows = data.filter(r => r.period_days === 7).length ? data.filter(r => r.period_days === 7) : data.filter(r => r.period_days === 30);
+    const p = bestRows[0]?.period_days || 7;
+    el.innerHTML += bestRows.map(r => {
+      const sign = r.growth_gb >= 0 ? '+' : '';
+      const growthCls = r.growth_gb > 5 ? 'text-warning' : r.growth_gb < 0 ? 'text-ok' : '';
+      let fc = '–', fcCls = 'text-muted';
+      if (r.days_until_full === null) { fc = 'kein Wachstum'; }
+      else if (r.days_until_full > 365) { fc = `~${Math.round(r.days_until_full/365)}a`; }
+      else if (r.days_until_full > 60)  { fc = `~${Math.round(r.days_until_full/30)}Mo`; fcCls = 'text-ok'; }
+      else if (r.days_until_full > 14)  { fc = `~${r.days_until_full}d`; fcCls = 'text-warning'; }
+      else                              { fc = `~${r.days_until_full}d!`; fcCls = 'text-danger'; }
+      return `
+        <div class="mem-row"><span class="mem-label">Wachstum ${p}d</span><span class="mem-val mono ${growthCls}">${sign}${r.growth_gb.toFixed(2)} GB</span></div>
+        <div class="mem-row"><span class="mem-label">Prognose voll</span><span class="mem-val mono ${fcCls}">${fc}</span></div>`;
+    }).join('');
+  }).catch(() => { const el = document.getElementById('storage-growth-list'); if (el) el.innerHTML = ''; });
+}
+
+function loadShares() {
+  fetch('/api/stats/shares').then(r => r.json()).then(data => {
+    const el = document.getElementById('card-shares');
+    if (!el) return;
+    if (data.error || !data.folders?.length) { el.innerHTML = '<div class="text-muted text-small">SSH nicht erreichbar</div>'; return; }
+    const volTotal = data.volume_total_mb || 0;
+    el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.6rem">
+      ${data.folders.map(f => {
+        const pct = volTotal > 0 ? Math.min(f.size_mb / volTotal * 100, 100) : 0;
+        const gb  = f.size_mb >= 1024 ? (f.size_mb/1024).toFixed(1)+' GB' : f.size_mb+' MB';
+        const cls = pct > 80 ? 'fill-danger' : pct > 60 ? 'fill-warning' : 'fill-ok';
+        return `<div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:.2rem">
+            <span class="text-small" style="font-weight:500">${f.name}</span>
+            <span class="mono text-small text-muted">${gb}</span>
+          </div>
+          <div class="progress-bar" style="height:5px"><div class="progress-fill ${cls}" style="width:${pct}%"></div></div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).catch(() => {});
+}
+
+// ── Log preview filter ───────────────────────────────────────
+function filterPreview() {
+  const entries = document.querySelectorAll('#card-logs .log-entry');
+  let shown = 0;
+  entries.forEach(el => {
+    const important = el.classList.contains('log-error') || el.classList.contains('log-warning');
+    el.style.display = (important && shown < 5) ? (shown++, '') : 'none';
+  });
+  if (shown === 0) {
+    const feed = document.querySelector('#card-logs .log-feed');
+    if (feed) feed.innerHTML = '<div class="log-empty text-ok"><i data-feather="check-circle"></i> Keine Warnungen</div>';
+  }
+  feather.replace();
+}
+
+// ── Intervals ────────────────────────────────────────────────
+pollStats();
+setInterval(pollStats,          {{ refresh }} * 1000);
+setInterval(loadProcesses,      15000);
+setInterval(loadSessions,       30000);
+setInterval(loadShares,         300000);
+setInterval(loadStorageGrowth,  300000);
+
 loadShares();
-setInterval(loadShares, 300000); // alle 5 Min
+
+// ── Boot ─────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', initGrid);
 </script>
 {% endblock %}
