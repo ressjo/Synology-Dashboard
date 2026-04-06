@@ -285,6 +285,19 @@ def container_stats():
     return docker_manager.get_container_stats()
 
 
+@router.get("/containers/list")
+def containers_list():
+    """JSON-Liste aller Container (für Dashboard-Widget)."""
+    return docker_manager.list_containers()
+
+
+@router.get("/adguard/stats")
+def adguard_stats():
+    """AdGuard Home Statistiken."""
+    from app import adguard
+    return adguard.get_stats()
+
+
 @router.get("/containers", response_class=HTMLResponse)
 def containers(request: Request):
     items = docker_manager.list_containers()

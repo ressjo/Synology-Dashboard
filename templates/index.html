@@ -289,6 +289,43 @@
     </div>
   </div>
 
+  <!-- Docker Container (nur wenn konfiguriert) -->
+  {% if has_docker %}
+  <div class="grid-stack-item" gs-id="docker"
+       gs-x="0" gs-y="12"
+       gs-w="{{ '6' if has_adguard else '12' }}" gs-h="5" gs-min-w="3" gs-min-h="3">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span>
+          <span class="widget-title">Container</span>
+          <a href="/containers" class="widget-link">Alle →</a>
+          <button class="widget-hide-btn" onclick="hideWidget('docker')">×</button>
+        </div>
+        <div class="widget-body" id="card-docker"><div class="text-muted text-small">Lade…</div></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- AdGuard (nur wenn konfiguriert) -->
+  {% if has_adguard %}
+  <div class="grid-stack-item" gs-id="adguard"
+       gs-x="{{ '6' if has_docker else '0' }}" gs-y="12"
+       gs-w="{{ '6' if has_docker else '12' }}" gs-h="5" gs-min-w="3" gs-min-h="3">
+    <div class="grid-stack-item-content">
+      <div class="widget-wrap">
+        <div class="widget-header">
+          <span class="widget-header-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+          <span class="widget-title">AdGuard Home</span>
+          <button class="widget-hide-btn" onclick="hideWidget('adguard')">×</button>
+        </div>
+        <div class="widget-body" id="card-adguard"><div class="text-muted text-small">Lade…</div></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Wichtige Meldungen -->
   <div class="grid-stack-item" gs-id="logs"
        gs-x="{{ '6' if has_paperless else '0' }}" gs-y="7"
@@ -341,6 +378,8 @@ const WIDGET_LABELS = {
   paperless:'Paperless',
   backup:   'HyperBackup',
   logs:     'Wichtige Meldungen',
+  docker:   'Container',
+  adguard:  'AdGuard Home',
 };
 
 // ── Gridstack init ───────────────────────────────────────────
@@ -707,6 +746,66 @@ function loadShares() {
   }).catch(() => {});
 }
 
+function loadDockerWidget() {
+  fetch('/api/containers/list').then(r => r.json()).then(data => {
+    const el = document.getElementById('card-docker');
+    if (!el) return;
+    if (!data.length) { el.innerHTML = '<div class="text-muted text-small">Keine Container</div>'; return; }
+    if (data[0]?.error) { el.innerHTML = `<div class="text-muted text-small">${data[0].error}</div>`; return; }
+    const running = data.filter(c => c.state === 'running').length;
+    const stopped = data.length - running;
+    el.innerHTML = `
+      <div style="display:flex;gap:1.2rem;margin-bottom:.65rem;align-items:center">
+        <span style="display:flex;align-items:center;gap:.4rem">
+          <span class="disk-status-dot status-running"></span>
+          <span class="mono" style="font-size:.85rem;font-weight:600;color:var(--green)">${running}</span>
+          <span class="text-muted text-small">läuft</span>
+        </span>
+        <span style="display:flex;align-items:center;gap:.4rem">
+          <span class="disk-status-dot status-stopped"></span>
+          <span class="mono" style="font-size:.85rem;font-weight:600;color:var(--text-dim)">${stopped}</span>
+          <span class="text-muted text-small">gestoppt</span>
+        </span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:.28rem;overflow-y:auto;max-height:110px">
+        ${data.map(c => `
+          <div style="display:flex;align-items:center;gap:.45rem">
+            <span class="disk-status-dot status-${c.state === 'running' ? 'running' : 'stopped'}"></span>
+            <span class="mono text-small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${c.state === 'running' ? 'var(--text)' : 'var(--text-dim)'}">${c.name}</span>
+          </div>`).join('')}
+      </div>`;
+  }).catch(() => {});
+}
+
+function loadAdGuardWidget() {
+  fetch('/api/adguard/stats').then(r => r.json()).then(data => {
+    const el = document.getElementById('card-adguard');
+    if (!el) return;
+    if (!data || Object.keys(data).length === 0) {
+      el.innerHTML = '<div class="text-muted text-small">Nicht erreichbar</div>';
+      return;
+    }
+    const total   = data.num_dns_queries || 0;
+    const blocked = data.num_blocked_filtering || 0;
+    const pct     = total > 0 ? Math.round(blocked / total * 100) : 0;
+    const pctCls  = pct > 20 ? 'fill-ok' : pct > 10 ? 'fill-warning' : 'fill-danger';
+    el.innerHTML = `
+      <div style="display:flex;gap:.85rem;align-items:flex-start">
+        <div class="stat-icon" style="background:rgba(239,68,68,.12);color:#ef4444;box-shadow:inset 0 0 12px rgba(239,68,68,.1);flex-shrink:0">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div class="stat-body">
+          <div class="stat-label">Blockiert</div>
+          <div class="stat-value" style="font-size:1.8rem">${pct}<span style="font-size:.8rem;opacity:.6">%</span></div>
+          <div class="stat-sub">${blocked.toLocaleString('de-DE')} von ${total.toLocaleString('de-DE')} Anfragen</div>
+        </div>
+      </div>
+      <div style="margin-top:.75rem">
+        <div class="progress-bar"><div class="progress-fill ${pctCls}" style="width:${pct}%"></div></div>
+      </div>`;
+  }).catch(() => {});
+}
+
 // ── Log preview filter ───────────────────────────────────────
 function filterPreview() {
   const entries = document.querySelectorAll('#card-logs .log-entry');
@@ -729,8 +828,12 @@ setInterval(loadProcesses,      15000);
 setInterval(loadSessions,       30000);
 setInterval(loadShares,         300000);
 setInterval(loadStorageGrowth,  300000);
+setInterval(loadDockerWidget,   30000);
+setInterval(loadAdGuardWidget,  60000);
 
 loadShares();
+loadDockerWidget();
+loadAdGuardWidget();
 
 // ── Boot ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', initGrid);

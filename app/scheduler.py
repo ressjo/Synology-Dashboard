@@ -59,14 +59,26 @@ async def check_anomalies():
         log.debug("Anomalie-Job fehlgeschlagen: %s", e)
 
 
+async def cleanup_notifications():
+    """Löscht Benachrichtigungen die älter als 7 Tage sind."""
+    try:
+        from app import database
+        database.delete_old_notifications(days=7)
+        log.debug("Alte Benachrichtigungen bereinigt")
+    except Exception as e:
+        log.debug("Notification-Cleanup fehlgeschlagen: %s", e)
+
+
 def start_scheduler():
     interval = config["dashboard"].get("stats_interval_seconds", 60)
     scheduler.add_job(collect_stats, "interval", seconds=interval, id="collect_stats")
     # Anomalie-Check alle 2 Minuten (unabhängig vom Stats-Intervall)
     scheduler.add_job(check_anomalies, "interval", seconds=120, id="check_anomalies",
                       misfire_grace_time=30)
+    # Benachrichtigungen täglich um 03:00 bereinigen
+    scheduler.add_job(cleanup_notifications, "cron", hour=3, minute=0, id="cleanup_notifications")
     scheduler.start()
-    log.info("Scheduler gestartet (Stats: %ds, Anomalien: 120s)", interval)
+    log.info("Scheduler gestartet (Stats: %ds, Anomalien: 120s, Cleanup: 03:00)", interval)
 
 
 def stop_scheduler():
