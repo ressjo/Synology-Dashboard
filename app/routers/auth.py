@@ -64,7 +64,7 @@ async def login_post(
     creds = auth.get_credentials()
     if creds and creds[0] == username and auth.verify_password(password, creds[1]):
         token = auth.create_session()
-        redirect_to = next if next and next.startswith("/") else "/"
+        redirect_to = next if next and next.startswith("/") and not next.startswith("//") else "/"
         response = RedirectResponse(redirect_to, status_code=302)
         response.set_cookie("session", token, httponly=True, samesite="lax", max_age=auth.SESSION_TTL)
         return response

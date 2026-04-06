@@ -1,17 +1,22 @@
 import sqlite3
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 DB_PATH = Path(os.getenv("DB_PATH", "data/dashboard.db"))
 
 
-def get_db() -> sqlite3.Connection:
+@contextmanager
+def get_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_db():
@@ -33,7 +38,7 @@ def init_db():
         try:
             conn.execute("ALTER TABLE stats ADD COLUMN sys_temp INTEGER")
             conn.commit()
-        except Exception:
+        except sqlite3.OperationalError:
             pass
         conn.execute("""
             CREATE TABLE IF NOT EXISTS backup_log (
@@ -180,8 +185,10 @@ def get_last_backup_per_task() -> dict[int, dict]:
     with get_db() as conn:
         rows = conn.execute(
             "SELECT task_id, task_name, timestamp, status, message "
-            "FROM backup_log "
-            "GROUP BY task_id HAVING MAX(timestamp) "
+            "FROM backup_log b1 "
+            "WHERE timestamp = ("
+            "  SELECT MAX(timestamp) FROM backup_log b2 WHERE b2.task_id = b1.task_id"
+            ") "
             "ORDER BY task_id"
         ).fetchall()
     return {r["task_id"]: dict(r) for r in rows}

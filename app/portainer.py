@@ -138,7 +138,7 @@ def _map_state(status: str) -> str:
 
 def get_container_stats_batch() -> dict[str, dict]:
     """CPU% + RAM für alle laufenden Container via Docker Stats API."""
-    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     eid = _endpoint_id()
     try:
@@ -147,9 +147,8 @@ def get_container_stats_batch() -> dict[str, dict]:
         return {}
 
     results: dict[str, dict] = {}
-    lock = threading.Lock()
 
-    def fetch(container_id: str, short_id: str):
+    def fetch(container_id: str, short_id: str) -> tuple[str, dict]:
         try:
             data = _get(
                 f"/api/endpoints/{eid}/docker/containers/{container_id}"
@@ -174,24 +173,22 @@ def get_container_stats_batch() -> dict[str, dict]:
             limit = mem.get("limit", 1) or 1
             mem_pct = used / limit * 100
 
-            with lock:
-                results[short_id] = {
-                    "cpu_pct": round(cpu_pct, 1),
-                    "mem_mb":  round(used / 1024 / 1024, 1),
-                    "mem_pct": round(mem_pct, 1),
-                }
+            return short_id, {
+                "cpu_pct": round(cpu_pct, 1),
+                "mem_mb":  round(used / 1024 / 1024, 1),
+                "mem_pct": round(mem_pct, 1),
+            }
         except Exception:
-            with lock:
-                results[short_id] = {"cpu_pct": None, "mem_mb": None, "mem_pct": None}
+            return short_id, {"cpu_pct": None, "mem_mb": None, "mem_pct": None}
 
-    threads = [
-        threading.Thread(target=fetch, args=(c["Id"], c["Id"][:12]))
-        for c in raw
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=6)
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(fetch, c["Id"], c["Id"][:12]) for c in raw}
+        for future in as_completed(futures, timeout=8):
+            try:
+                short_id, stats = future.result()
+                results[short_id] = stats
+            except Exception:
+                pass
 
     return results
 

@@ -33,7 +33,6 @@ async def check_container_anomalies() -> None:
 
         _check_cpu_anomalies(stats)
         _check_state_changes(containers)
-        database.delete_old_notifications(days=7)
 
     except Exception as e:
         log.debug("Anomalie-Check fehlgeschlagen: %s", e)

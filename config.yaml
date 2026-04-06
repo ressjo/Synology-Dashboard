@@ -3,6 +3,7 @@ synology:
   port: 5001                   # DSM port (5001 = HTTPS, 5000 = HTTP)
   username: "dashboard"        # DSM user created for the dashboard
   use_https: true
+  verify_ssl: false             # Set to true if your NAS has a trusted certificate
   # password: set via SYNO_PASSWORD environment variable (see .env)
 
 ssh:
