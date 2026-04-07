@@ -40,6 +40,11 @@ async def index(request: Request):
     from app.services_db import get_service as _get_svc
     _pl = _get_svc("paperless") or config.get("paperless", {})
     ctx["paperless_url"] = _pl.get("url", "#")
+    ctx["has_paperless"] = bool(_pl.get("url") and (_pl.get("token") or config.get("paperless", {}).get("token")))
+    _docker = _get_svc("portainer") or config.get("portainer", {})
+    ctx["has_docker"] = bool(_docker and _docker.get("url"))
+    _ag = _get_svc("adguard")
+    ctx["has_adguard"] = bool(_ag and _ag.get("url"))
     return templates.TemplateResponse("index.html", ctx)
 
 

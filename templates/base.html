@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title }}</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  {% block head %}{% endblock %}
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://unpkg.com/feather-icons@4.29.1/dist/feather.min.js"></script>
@@ -91,6 +92,20 @@
       <div class="topbar-title">{{ title }}</div>
       <div class="topbar-right">
         {% block topbar_actions %}{% endblock %}
+        <!-- Notification bell -->
+        <div class="notif-wrap" id="notif-wrap">
+          <button class="notif-bell" id="notif-bell" onclick="toggleNotifPanel()" title="Benachrichtigungen">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span class="notif-badge" id="notif-badge" style="display:none">0</span>
+          </button>
+          <div class="notif-panel" id="notif-panel" style="display:none">
+            <div class="notif-panel-header">
+              <span>Benachrichtigungen</span>
+              <button onclick="markAllRead()" class="notif-read-all">Alle gelesen</button>
+            </div>
+            <div id="notif-list"><div class="notif-empty">Keine Benachrichtigungen</div></div>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -139,6 +154,65 @@
 
   loadLinkStatus();
   setInterval(loadLinkStatus, 30000);
+
+  // ── Notifications ─────────────────────────────────────────
+  function loadNotifications() {
+    fetch('/api/notifications')
+      .then(r => r.json())
+      .then(data => {
+        const badge  = document.getElementById('notif-badge');
+        const bell   = document.getElementById('notif-bell');
+        const list   = document.getElementById('notif-list');
+        const unread = data.unread || 0;
+
+        badge.textContent = unread > 9 ? '9+' : unread;
+        badge.style.display = unread > 0 ? 'flex' : 'none';
+        bell.classList.toggle('has-unread', unread > 0);
+
+        const items = data.notifications || [];
+        if (!items.length) {
+          list.innerHTML = '<div class="notif-empty">Keine Benachrichtigungen</div>';
+          return;
+        }
+        list.innerHTML = items.map(n => {
+          const dotCls = n.severity === 'error' ? 'notif-dot-error'
+                       : n.severity === 'info'  ? 'notif-dot-info'
+                       :                          'notif-dot-warning';
+          const ts = (n.timestamp || '').slice(5, 16).replace('T', ' ');
+          return `<div class="notif-item ${n.read ? '' : 'unread'}">
+            <span class="notif-dot ${dotCls}"></span>
+            <div class="notif-body">
+              <div class="notif-title">${n.title}</div>
+              <div class="notif-msg">${n.message}</div>
+              <div class="notif-time">${ts}</div>
+            </div>
+          </div>`;
+        }).join('');
+      }).catch(() => {});
+  }
+
+  function toggleNotifPanel() {
+    const panel = document.getElementById('notif-panel');
+    const open  = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : 'flex';
+    if (!open) { markAllRead(); }
+  }
+
+  function markAllRead() {
+    fetch('/api/notifications/read-all', { method: 'POST' })
+      .then(() => loadNotifications()).catch(() => {});
+  }
+
+  // Close panel on outside click
+  document.addEventListener('click', e => {
+    const wrap = document.getElementById('notif-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+      document.getElementById('notif-panel').style.display = 'none';
+    }
+  });
+
+  loadNotifications();
+  setInterval(loadNotifications, 60000);
 </script>
 {% block scripts %}{% endblock %}
 </body>

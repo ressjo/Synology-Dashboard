@@ -29,8 +29,16 @@ def _base() -> str:
     return f"{protocol}://{host}:{port}/webapi"
 
 
+def _verify_ssl() -> bool:
+    cfg = _get_cfg()
+    val = cfg.get("verify_ssl", False)
+    if isinstance(val, str):
+        return val.lower() == "true"
+    return bool(val)
+
+
 async def _request(params: dict, timeout: int = 10) -> dict:
-    async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
+    async with httpx.AsyncClient(verify=_verify_ssl(), timeout=timeout) as client:
         resp = await client.get(f"{_base()}/entry.cgi", params=params)
         resp.raise_for_status()
         return resp.json()

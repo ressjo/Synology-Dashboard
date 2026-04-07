@@ -1,3 +1,7 @@
+import asyncio
+from datetime import datetime, timedelta
+
+import httpx
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -13,12 +17,11 @@ router = APIRouter(prefix="/api")
 @router.get("/stats/live")
 async def stats_live():
     try:
-        import asyncio as _aio
-        util, storage, temp_info, mem_detail = await _aio.gather(
+        util, storage, temp_info, mem_detail = await asyncio.gather(
             synology.get_utilization(),
             synology.get_storage_info(),
             synology.get_system_temp(),
-            _aio.to_thread(get_memory_detail),
+            asyncio.to_thread(get_memory_detail),
         )
 
         cpu = util.get("cpu", {}).get("user_load", 0)
@@ -95,6 +98,103 @@ def stats_history(hours: int = 24):
     return rows
 
 
+@router.get("/stats/storage-history")
+def storage_history(hours: int = 168):
+    """
+    Gibt Speicherbelegung als Zeitreihe zurück — inkl. linearer Prognose für 30 Tage.
+    """
+    rows = database.get_storage_history(hours)
+    if not rows:
+        return {"labels": [], "volumes": []}
+
+    # Alle Volumes sammeln
+    vol_names: list[str] = []
+    for row in rows:
+        for d in row["disks"]:
+            if d["name"] not in vol_names:
+                vol_names.append(d["name"])
+
+    COLORS = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444"]
+
+    # Actual-Zeitreihe aufbauen
+    actual_labels = [r["timestamp"][5:16].replace(" ", " ") for r in rows]  # "MM-DD HH:MM"
+    actual_ts = [datetime.strptime(r["timestamp"], "%Y-%m-%d %H:%M:%S") for r in rows]
+
+    volumes_out = []
+    for i, vol in enumerate(vol_names):
+        actual_gb: list[float | None] = []
+        total_gb = 0.0
+        for row in rows:
+            match = next((d for d in row["disks"] if d["name"] == vol), None)
+            if match and match.get("total", 0) > 0:
+                used_gb = round(match["used"] / 1e9, 2)
+                total_gb = round(match["total"] / 1e9, 1)
+                actual_gb.append(used_gb)
+            else:
+                actual_gb.append(None)
+
+        # Lineare Regression für Prognose (nur nicht-None Punkte)
+        valid = [(actual_ts[j], actual_gb[j]) for j in range(len(actual_gb)) if actual_gb[j] is not None]
+        forecast_labels: list[str] = []
+        forecast_gb: list[float | None] = []
+
+        if len(valid) >= 2:
+            t0, v0 = valid[0]
+            t1, v1 = valid[-1]
+            days_elapsed = max((t1 - t0).total_seconds() / 86400, 0.001)
+            daily_growth = (v1 - v0) / days_elapsed  # GB/day
+
+            # 30 Tage Prognose, tägliche Punkte
+            last_ts = actual_ts[-1]
+            last_val = v1
+            for day in range(1, 31):
+                ft = last_ts + timedelta(days=day)
+                fv = round(last_val + daily_growth * day, 2)
+                if total_gb > 0 and fv >= total_gb:
+                    forecast_labels.append(ft.strftime("%m-%d"))
+                    forecast_gb.append(round(total_gb, 2))
+                    break
+                forecast_labels.append(ft.strftime("%m-%d"))
+                forecast_gb.append(max(fv, 0))
+
+        # Forecast-Array muss gleich lang sein wie combined labels
+        # actual_gb hat None für Forecast-Bereich → Chart.js verbindet nicht
+        n_actual = len(actual_gb)
+        n_forecast = len(forecast_gb)
+        combined_actual   = actual_gb + [None] * n_forecast
+        combined_forecast = [None] * (n_actual - 1) + [actual_gb[-1] if actual_gb else None] + forecast_gb
+        combined_labels   = actual_labels + forecast_labels
+
+        volumes_out.append({
+            "name":     vol,
+            "total_gb": total_gb,
+            "color":    COLORS[i % len(COLORS)],
+            "actual":   combined_actual,
+            "forecast": combined_forecast,
+            "labels":   combined_labels,
+        })
+
+    # Gemeinsame Labels (alle Volumes zusammenführen — normalerweise gleich)
+    all_labels = volumes_out[0]["labels"] if volumes_out else []
+    return {"labels": all_labels, "volumes": volumes_out}
+
+
+# ── Notifications ─────────────────────────────────────────────
+
+@router.get("/notifications")
+def get_notifications():
+    return {
+        "notifications": database.get_notifications(30),
+        "unread": database.count_unread_notifications(),
+    }
+
+
+@router.post("/notifications/read-all")
+def read_all_notifications():
+    database.mark_all_notifications_read()
+    return {"status": "ok"}
+
+
 @router.get("/stats/storage-growth")
 def storage_growth():
     return database.get_storage_growth()
@@ -117,8 +217,7 @@ async def active_sessions():
 
 @router.get("/stats/shares")
 async def shared_folders():
-    import asyncio as _aio
-    return await _aio.to_thread(get_shared_folder_sizes)
+    return await asyncio.to_thread(get_shared_folder_sizes)
 
 
 @router.get("/stats/disk-health")
@@ -128,8 +227,7 @@ async def disk_health():
 
 @router.get("/logs/syslog", response_class=HTMLResponse)
 async def syslog_entries(request: Request):
-    import asyncio as _aio
-    entries = await _aio.to_thread(get_syslog)
+    entries = await asyncio.to_thread(get_syslog)
     return templates.TemplateResponse(
         "partials/syslog.html",
         {"request": request, "entries": entries},
@@ -138,15 +236,12 @@ async def syslog_entries(request: Request):
 
 @router.get("/system/uptime")
 async def system_uptime():
-    import asyncio as _aio
-    uptime = await _aio.to_thread(get_nas_uptime)
+    uptime = await asyncio.to_thread(get_nas_uptime)
     return {"uptime": uptime}
 
 
 @router.get("/links/status")
 async def links_status():
-    import asyncio as _aio
-    import httpx as _httpx
     from app.services_db import get_sidebar_links
     service_links = get_sidebar_links()
     service_urls = {lnk["url"] for lnk in service_links}
@@ -156,13 +251,13 @@ async def links_status():
 
     async def check(url: str) -> bool:
         try:
-            async with _httpx.AsyncClient(verify=False, timeout=3) as client:
+            async with httpx.AsyncClient(verify=False, timeout=3) as client:
                 r = await client.head(url, follow_redirects=True)
                 return r.status_code < 500
         except Exception:
             return False
 
-    statuses = await _aio.gather(*[check(lnk["url"]) for lnk in links])
+    statuses = await asyncio.gather(*[check(lnk["url"]) for lnk in links])
     for lnk, ok in zip(links, statuses):
         results[lnk["url"]] = ok
     return results
@@ -184,6 +279,19 @@ async def paperless_upload(file: UploadFile = File(...)):
 @router.get("/containers/stats")
 def container_stats():
     return docker_manager.get_container_stats()
+
+
+@router.get("/containers/list")
+def containers_list():
+    """JSON-Liste aller Container (für Dashboard-Widget)."""
+    return docker_manager.list_containers()
+
+
+@router.get("/adguard/stats")
+def adguard_stats():
+    """AdGuard Home Statistiken."""
+    from app import adguard
+    return adguard.get_stats()
 
 
 @router.get("/containers", response_class=HTMLResponse)
@@ -216,8 +324,7 @@ def paperless(request: Request):
 
 @router.get("/logs", response_class=HTMLResponse)
 async def logs(request: Request):
-    import asyncio as _aio
-    sys_logs_raw, sec_events_raw = await _aio.gather(
+    sys_logs_raw, sec_events_raw = await asyncio.gather(
         synology.get_system_logs(40),
         synology.get_security_events(20),
         return_exceptions=True,
@@ -285,16 +392,14 @@ def _format_security_event(str_id: str, args: dict) -> str:
 
 @router.get("/backup/summary", response_class=HTMLResponse)
 async def backup_summary(request: Request):
-    import asyncio as _aio
-
     try:
         tasks = await synology.get_backup_tasks()
     except Exception:
         tasks = []
 
     # Status + DB-Logs parallel
-    results = await _aio.gather(
-        _aio.to_thread(database.get_last_backup_per_task),
+    results = await asyncio.gather(
+        asyncio.to_thread(database.get_last_backup_per_task),
         *[synology.get_task_status(t["task_id"]) for t in tasks],
         return_exceptions=True,
     )
@@ -334,7 +439,6 @@ async def backup_tasks(request: Request):
         )
 
     # Status aller Tasks parallel abfragen
-    import asyncio as _aio
     statuses = {}
     async def fetch_status(t):
         try:
@@ -342,7 +446,7 @@ async def backup_tasks(request: Request):
             statuses[t["task_id"]] = s
         except Exception:
             statuses[t["task_id"]] = {}
-    await _aio.gather(*[fetch_status(t) for t in tasks])
+    await asyncio.gather(*[fetch_status(t) for t in tasks])
 
     return templates.TemplateResponse(
         "partials/backup_tasks.html",
