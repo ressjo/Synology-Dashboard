@@ -3,7 +3,7 @@
 A self-hosted web dashboard for your Synology NAS — built with FastAPI, HTMX, and Chart.js.
 Monitor system stats, manage Docker containers, track backups, browse logs, and more — all from one place.
 
-> **⚠️ AI Generated** — This project was built with the assistance of an AI coding assistant.
+> This project was built with the assistance of an AI coding assistant.
 
 ---
 
