@@ -17,6 +17,7 @@
 {% set st = statuses.get(tid, {}) %}
 {% set state  = st.get('state',  task.get('state',  'unknown')) %}
 {% set status = st.get('status', task.get('status', '')) %}
+{% set last_run = last_runs.get(tid, {}) %}
 
 {# "status=backup" bedeutet: Backup läuft gerade #}
 {% set is_running = status == 'backup' or (state not in ('backupable', 'none', 'unknown', '') and 'error' not in state) %}
@@ -62,10 +63,17 @@
   <!-- Fortschrittsbalken -->
   <div class="backup-progress-wrap">
     {% if is_running %}
+      {% set pct = progress_pcts.get(tid) %}
       <div class="progress-bar" style="height:8px">
-        <div class="progress-fill fill-warning progress-indeterminate"></div>
+        {% if pct is not none %}
+          <div class="progress-fill fill-warning" id="taskprog-{{ tid }}" style="width:{{ pct }}%;transition:width .5s ease"></div>
+        {% else %}
+          <div class="progress-fill fill-warning progress-indeterminate" id="taskprog-{{ tid }}"></div>
+        {% endif %}
       </div>
-      <div class="backup-state-label text-warning">Backup läuft…</div>
+      <div class="backup-state-label text-warning" id="taskprog-label-{{ tid }}">
+        Backup läuft…{% if pct is not none %} {{ pct }}%{% endif %}
+      </div>
     {% elif is_error %}
       <div class="progress-bar" style="height:8px">
         <div class="progress-fill fill-danger" style="width:100%"></div>
@@ -79,11 +87,27 @@
     {% endif %}
   </div>
 
-  <div class="backup-task-footer">
-    <span class="text-muted text-small">
-      Ziel: <span class="mono">{{ task.target_id }}</span>
-    </span>
-    <span class="text-muted text-small">Task-ID: {{ tid }}</span>
+  <!-- Letzter Run -->
+  <div class="bksummary-meta" style="margin-top:.5rem">
+    <div class="bksummary-item">
+      <i data-feather="clock"></i>
+      <span class="text-muted">Letzter Run</span>
+      {% if last_run.timestamp %}
+        <span class="mono">{{ last_run.timestamp }}</span>
+        {% if last_run.status == 'gestartet' %}
+          <span class="badge badge-ok" style="font-size:.65rem">Erfolgreich</span>
+        {% elif last_run.status == 'fehler' %}
+          <span class="badge badge-danger" style="font-size:.65rem">Fehler</span>
+        {% endif %}
+      {% else %}
+        <span class="text-dim">–</span>
+      {% endif %}
+    </div>
+    <div class="bksummary-item">
+      <i data-feather="map-pin"></i>
+      <span class="text-muted">Ziel</span>
+      <span class="mono">{{ task.target_id }}</span>
+    </div>
   </div>
 
   {% set res = results_fmt.get(tid, {}) %}
@@ -94,6 +118,7 @@
       <span class="backup-size-chip">
         <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
         Gesamt: <strong>{{ res.size }}</strong>
+        {% if res.delta %}<span style="font-size:.7rem;color:{{ 'var(--amber)' if res.delta.startswith('+') else 'var(--green)' }};margin-left:.2rem">{{ res.delta }}</span>{% endif %}
       </span>
     {% elif ssh_size %}
       <span class="backup-size-chip">
@@ -117,4 +142,31 @@
   {% endif %}
 </div>
 {% endfor %}
+
+{% endif %}
+
+{% if progress_pcts %}
+<script>
+(function() {
+  function pollProgress() {
+    fetch('/api/backup/progress')
+      .then(r => r.json())
+      .then(data => {
+        for (const [tid, info] of Object.entries(data)) {
+          const bar   = document.getElementById('taskprog-' + tid);
+          const label = document.getElementById('taskprog-label-' + tid);
+          if (!bar) continue;
+          if (info.progress != null) {
+            bar.style.width = info.progress + '%';
+            bar.classList.remove('progress-indeterminate');
+            if (label) label.textContent = 'Backup läuft… ' + info.progress + '%';
+          }
+        }
+      }).catch(() => {});
+  }
+  pollProgress();
+  const _bkTaskTimer = setInterval(pollProgress, 4000);
+  document.addEventListener('htmx:beforeSwap', () => clearInterval(_bkTaskTimer), { once: true });
+})();
+</script>
 {% endif %}

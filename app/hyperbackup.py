@@ -48,61 +48,64 @@ def _ssh_connect() -> paramiko.SSHClient:
 def get_backup_sizes_ssh(tasks: list[dict]) -> dict[int, str]:
     """
     Misst HyperBackup-Repository-Größen per SSH.
-    Strategie: findet pool.hbk (eigentlicher Daten-Pool), misst dessen
-    Parent-Verzeichnis (= das Backup-Repository). Fällt auf generische
-    .hbk-Suche zurück falls pool.hbk nicht gefunden wird.
+    Findet alle *.hbk-Verzeichnisse (Repositories) und misst deren Gesamtgröße via du.
     Gibt {task_id: "98.7G"} zurück.
     """
     result = {}
     try:
         client = _ssh_connect()
-
-        # pool.hbk ist das eigentliche Datenverzeichnis von HyperBackup.
-        # Wir messen dessen Parent (das Repository), um alle Versionen zu erfassen.
-        cmd = (
-            "find /volume* -maxdepth 10 -name 'pool.hbk' 2>/dev/null"
-            " | while IFS= read -r p; do"
-            "   parent=$(dirname \"$p\");"
-            "   printf '%s\\t%s\\n' \"$(du -sh \"$parent\" 2>/dev/null | cut -f1)\" \"$parent\";"
-            " done"
-        )
-        _, stdout, _ = client.exec_command(cmd, timeout=40)
+        # Nur Verzeichnisse mit -type d → du -sh gibt Gesamtgröße des Repositories
+        cmd = r"find /volume* -maxdepth 6 -name '*.hbk' -type d 2>/dev/null | head -20 | xargs -I{} du -sh {} 2>/dev/null"
+        _, stdout, _ = client.exec_command(cmd, timeout=30)
         lines = stdout.read().decode().strip().splitlines()
-
-        # Fallback: alle *.hbk-Verzeichnisse direkt messen wenn pool.hbk fehlt
-        if not lines:
-            cmd2 = r"find /volume* -maxdepth 8 -name '*.hbk' -type d 2>/dev/null | xargs -I{} du -sh {} 2>/dev/null"
-            _, stdout, _ = client.exec_command(cmd2, timeout=30)
-            lines = stdout.read().decode().strip().splitlines()
-
         client.close()
 
-        def _match(path: str, task: dict) -> bool:
-            p = path.lower()
-            name   = task.get("name", "").lower()
-            name_u = name.replace(" ", "_")
-            name_s = name.replace("_", " ")
-            return bool(name and (name in p or name_u in p or name_s in p))
+        def _to_bytes(s: str) -> float:
+            s = s.strip().upper().replace(",", ".")
+            try:
+                if s.endswith("T"): return float(s[:-1]) * 1e12
+                if s.endswith("G"): return float(s[:-1]) * 1e9
+                if s.endswith("M"): return float(s[:-1]) * 1e6
+                if s.endswith("K"): return float(s[:-1]) * 1e3
+                return float(s)
+            except Exception:
+                return 0
 
+        # Parse: jede Zeile ist "98.7G\t/volume1/.../MyTask.hbk"
+        repos: list[tuple[str, str, float]] = []
         for line in lines:
             if "\t" not in line:
                 continue
-            size, path = line.split("\t", 1)
-            if not size or size == "0":
+            size_str, path = line.split("\t", 1)
+            size_str = size_str.strip()
+            path = path.strip()
+            if not size_str or not path:
                 continue
-            for task in tasks:
-                tid = task.get("task_id")
-                if tid in result:
-                    continue
+            repos.append((size_str, path, _to_bytes(size_str)))
+
+        if not repos:
+            return result
+
+        def _match(path: str, task: dict) -> bool:
+            p = path.lower()
+            name = task.get("name", "").lower()
+            return bool(name and (
+                name in p or
+                name.replace(" ", "_") in p or
+                name.replace("_", " ") in p
+            ))
+
+        for task in tasks:
+            tid = task.get("task_id")
+            for size_str, path, _ in repos:
                 if _match(path, task):
-                    result[tid] = size
+                    result[tid] = size_str
                     break
 
-        # Wenn nur 1 Task vorhanden und kein Match: ersten Treffer zuweisen
-        if len(tasks) == 1 and not result and lines:
-            parts = lines[0].split("\t", 1)
-            if len(parts) == 2 and parts[0]:
-                result[tasks[0]["task_id"]] = parts[0]
+        # Fallback: 1 Task, kein Match → größtes Repository nehmen
+        if not result and len(tasks) == 1 and repos:
+            best = max(repos, key=lambda x: x[2])
+            result[tasks[0]["task_id"]] = best[0]
 
     except Exception:
         pass

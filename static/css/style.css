@@ -970,6 +970,21 @@ a:hover { text-decoration: underline; }
   animation: valueFlash .7s ease-out forwards;
 }
 
+/* ── Topbar action buttons (shared across pages) ─────────────── */
+.btn-topbar {
+  display: flex; align-items: center; gap: .4rem;
+  padding: .38rem .75rem; font-size: .78rem; font-weight: 500;
+  background: rgba(34,211,238,.1); border: 1px solid rgba(34,211,238,.25);
+  border-radius: var(--radius-sm); color: var(--cyan); cursor: pointer;
+  font-family: var(--font); transition: background .15s;
+}
+.btn-topbar:hover  { background: rgba(34,211,238,.18); }
+.btn-topbar.active { background: rgba(34,211,238,.2); border-color: var(--cyan); }
+.btn-topbar-muted  {
+  background: rgba(255,255,255,.04); border-color: var(--border); color: var(--text-muted);
+}
+.btn-topbar-muted:hover { background: rgba(255,255,255,.08); color: var(--text); }
+
 /* ── Scrollbar ───────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

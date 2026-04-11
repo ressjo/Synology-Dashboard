@@ -106,23 +106,6 @@
   }
   .hidden-chip:hover { border-color: var(--cyan); color: var(--text); }
 
-  /* ── Topbar buttons ──────────────────────────────────────── */
-  .btn-topbar {
-    display: flex; align-items: center; gap: .4rem;
-    padding: .38rem .75rem; font-size: .78rem; font-weight: 500;
-    background: rgba(34,211,238,.1); border: 1px solid rgba(34,211,238,.25);
-    border-radius: var(--radius-sm); color: var(--cyan); cursor: pointer;
-    font-family: var(--font); transition: background .15s;
-  }
-  .btn-topbar:hover { background: rgba(34,211,238,.18); }
-  .btn-topbar.active {
-    background: rgba(34,211,238,.2); border-color: var(--cyan);
-  }
-  .btn-topbar-muted {
-    background: rgba(255,255,255,.04); border-color: var(--border); color: var(--text-muted);
-  }
-  .btn-topbar-muted:hover { background: rgba(255,255,255,.08); color: var(--text); }
-
   /* ── Stat card internals ─────────────────────────────────── */
   .stat-label  { font-size: .72rem; color: var(--text-muted); font-weight: 600;
                  text-transform: uppercase; letter-spacing: .05em; margin-bottom: .3rem; }
@@ -281,7 +264,7 @@
         <div class="widget-body"
              id="card-backup"
              hx-get="/api/backup/summary"
-             hx-trigger="load, every 60s"
+             hx-trigger="load, every 15s"
              hx-swap="innerHTML">
           <div class="text-muted text-small">Lade…</div>
         </div>

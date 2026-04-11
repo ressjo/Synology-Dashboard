@@ -5,21 +5,8 @@
   <h1><i data-feather="archive"></i> HyperBackup</h1>
 </div>
 
-<!-- Zusammenfassung -->
+<!-- Aufgaben -->
 <section>
-  <h2 class="section-title"><i data-feather="info"></i> Zusammenfassung</h2>
-  <div class="card"
-       id="backup-summary"
-       hx-get="/api/backup/summary"
-       hx-trigger="load, every 30s"
-       hx-swap="innerHTML">
-    <div class="text-muted">Lade…</div>
-  </div>
-</section>
-
-<!-- Aufgaben (HTMX polled alle 10s) -->
-<section>
-  <h2 class="section-title">Aufgaben</h2>
   <div
     id="backup-tasks"
     hx-get="/api/backup/tasks"

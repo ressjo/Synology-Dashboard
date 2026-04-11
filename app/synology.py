@@ -240,32 +240,35 @@ async def get_task_detail(task_id: int) -> dict:
     return data.get("data", {})
 
 
-async def get_backup_last_results(task_ids: list[int]) -> dict[int, dict]:
+async def get_backup_last_results(task_ids: list[int]) -> dict[int, list[dict]]:
     """
-    Letztes Backup-Ergebnis pro Task-ID via SYNO.Backup.Task.Result.
-    Gibt {task_id: {size, transferred_size, elapsed_time, result, time}} zurück.
+    Letzten 2 Backup-Ergebnisse pro Task-ID via SYNO.Backup.Task.Result.
+    Gibt {task_id: [latest, previous]} zurück (Liste kann 0-2 Einträge haben).
     Felder size/transferred_size sind in Bytes.
     """
     import asyncio
 
-    async def _fetch(tid: int) -> tuple[int, dict]:
+    async def _fetch(tid: int) -> tuple[int, list[dict]]:
         data = await _authed_request({
             "api":     "SYNO.Backup.Task.Result",
             "version": "1",
             "method":  "list",
             "task_id": tid,
-            "limit":   1,
+            "limit":   2,
             "offset":  0,
         })
         items = data.get("data", {}).get("result_list", [])
-        return tid, items[0] if items else {}
+        return tid, items if isinstance(items, list) else []
 
     pairs = await asyncio.gather(*[_fetch(tid) for tid in task_ids], return_exceptions=True)
-    return {
-        tid: result
-        for tid, result in pairs
-        if not isinstance((tid, result), Exception) and isinstance(result, dict)
-    }
+    out = {}
+    for item in pairs:
+        if isinstance(item, Exception):
+            continue
+        tid, results = item
+        if isinstance(results, list):
+            out[tid] = results
+    return out
 
 
 async def trigger_backup(task_id: int) -> bool:
