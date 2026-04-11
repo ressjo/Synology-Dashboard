@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app import synology, docker_manager, database, paperless_client
-from app.hyperbackup import trigger_backup_ssh, get_top_processes, get_network_connections, get_memory_detail, get_nas_uptime, get_shared_folder_sizes, get_syslog
+from app.hyperbackup import trigger_backup_ssh, get_top_processes, get_network_connections, get_memory_detail, get_nas_uptime, get_shared_folder_sizes, get_syslog, get_backup_sizes_ssh
 from app.config import config
 
 templates = Jinja2Templates(directory="templates")
@@ -172,6 +172,10 @@ def storage_history(hours: int = 168):
             "actual":   combined_actual,
             "forecast": combined_forecast,
             "labels":   combined_labels,
+            "actual_labels":   actual_labels,
+            "actual_gb":       actual_gb,
+            "forecast_labels": forecast_labels,
+            "forecast_gb":     forecast_gb,
         })
 
     # Gemeinsame Labels (alle Volumes zusammenführen — normalerweise gleich)
@@ -192,6 +196,12 @@ def get_notifications():
 @router.post("/notifications/read-all")
 def read_all_notifications():
     database.mark_all_notifications_read()
+    return {"status": "ok"}
+
+
+@router.delete("/notifications/{notif_id}")
+def delete_notification(notif_id: int):
+    database.delete_notification(notif_id)
     return {"status": "ok"}
 
 
@@ -397,14 +407,30 @@ async def backup_summary(request: Request):
     except Exception:
         tasks = []
 
-    # Status + DB-Logs parallel
+    task_ids = [t["task_id"] for t in tasks]
+
+    # Status + DB-Logs + letzte Ergebnisse parallel
     results = await asyncio.gather(
         asyncio.to_thread(database.get_last_backup_per_task),
+        synology.get_backup_last_results(task_ids),
         *[synology.get_task_status(t["task_id"]) for t in tasks],
         return_exceptions=True,
     )
-    last_runs   = results[0] if isinstance(results[0], dict) else {}
-    status_list = [r if isinstance(r, dict) else {} for r in results[1:]]
+    last_runs    = results[0] if isinstance(results[0], dict) else {}
+    last_results = results[1] if isinstance(results[1], dict) else {}
+    status_list  = [r if isinstance(r, dict) else {} for r in results[2:]]
+
+    def _fmt_bytes(n) -> str | None:
+        if not n:
+            return None
+        n = int(n)
+        if n >= 1_000_000_000_000:
+            return f"{n/1e12:.1f} TB"
+        if n >= 1_000_000_000:
+            return f"{n/1e9:.1f} GB"
+        if n >= 1_000_000:
+            return f"{n/1e6:.0f} MB"
+        return f"{n/1e3:.0f} KB"
 
     summaries = []
     for task, status in zip(tasks, status_list):
@@ -412,13 +438,16 @@ async def backup_summary(request: Request):
         tid        = task["task_id"]
         last_run   = last_runs.get(tid, {})
         is_running = status.get("status") == "backup"
+        api_result = last_results.get(tid, {})
 
         summaries.append({
-            "name":       name,
-            "task_id":    tid,
-            "is_running": is_running,
-            "last_time":  last_run.get("timestamp"),   # aus backup_log
-            "last_status": last_run.get("status", ""), # "gestartet" / "fehler"
+            "name":             name,
+            "task_id":          tid,
+            "is_running":       is_running,
+            "last_time":        last_run.get("timestamp"),
+            "last_status":      last_run.get("status", ""),
+            "backup_size":      _fmt_bytes(api_result.get("size")),
+            "transferred_size": _fmt_bytes(api_result.get("transferred_size")),
         })
     summaries.sort(key=lambda x: x["task_id"])
 
@@ -438,7 +467,9 @@ async def backup_tasks(request: Request):
             {"request": request, "tasks": [], "sizes": {}, "statuses": {}, "error": str(e)},
         )
 
-    # Status aller Tasks parallel abfragen
+    task_ids = [t["task_id"] for t in tasks]
+
+    # Status + letzte Ergebnisse parallel holen
     statuses = {}
     async def fetch_status(t):
         try:
@@ -446,11 +477,68 @@ async def backup_tasks(request: Request):
             statuses[t["task_id"]] = s
         except Exception:
             statuses[t["task_id"]] = {}
-    await asyncio.gather(*[fetch_status(t) for t in tasks])
+
+    last_results, *_ = await asyncio.gather(
+        synology.get_backup_last_results(task_ids),
+        *[fetch_status(t) for t in tasks],
+        return_exceptions=True,
+    )
+    if not isinstance(last_results, dict):
+        last_results = {}
+
+    # SSH-Fallback wenn API keine Größen liefert
+    def _fmt_bytes(n) -> str | None:
+        if not n:
+            return None
+        n = int(n)
+        if n >= 1_000_000_000_000:
+            return f"{n/1e12:.1f} TB"
+        if n >= 1_000_000_000:
+            return f"{n/1e9:.1f} GB"
+        if n >= 1_000_000:
+            return f"{n/1e6:.0f} MB"
+        return f"{n/1e3:.0f} KB"
+
+    def _fmt_duration(secs) -> str | None:
+        if not secs:
+            return None
+        s = int(secs)
+        h, rem = divmod(s, 3600)
+        m, sec = divmod(rem, 60)
+        if h:
+            return f"{h}h {m}m"
+        if m:
+            return f"{m}m {sec}s"
+        return f"{sec}s"
+
+    # Ergebnisse vorformatieren
+    results_fmt: dict[int, dict] = {}
+    for tid, r in last_results.items():
+        results_fmt[tid] = {
+            "size":             _fmt_bytes(r.get("size")),
+            "transferred_size": _fmt_bytes(r.get("transferred_size")),
+            "duration":         _fmt_duration(r.get("elapsed_time")),
+        }
+
+    # SSH-Fallback wenn API keine Größen liefert
+    has_sizes = any(r.get("size") for r in results_fmt.values())
+    ssh_sizes: dict[int, str] = {}
+    if not has_sizes:
+        try:
+            ssh_sizes = await asyncio.to_thread(get_backup_sizes_ssh, tasks)
+        except Exception:
+            pass
 
     return templates.TemplateResponse(
         "partials/backup_tasks.html",
-        {"request": request, "tasks": tasks, "sizes": {}, "statuses": statuses, "error": None},
+        {
+            "request": request,
+            "tasks": tasks,
+            "statuses": statuses,
+            "results_fmt": results_fmt,
+            "ssh_sizes": ssh_sizes,
+            "error": None,
+        },
     )
 
 

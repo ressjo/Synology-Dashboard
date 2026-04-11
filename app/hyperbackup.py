@@ -47,26 +47,63 @@ def _ssh_connect() -> paramiko.SSHClient:
 
 def get_backup_sizes_ssh(tasks: list[dict]) -> dict[int, str]:
     """
-    Liest Backup-Größen per SSH aus den HBK-Cache-Verzeichnissen.
-    Gibt {task_id: "3.1G"} zurück.
+    Misst HyperBackup-Repository-Größen per SSH.
+    Strategie: findet pool.hbk (eigentlicher Daten-Pool), misst dessen
+    Parent-Verzeichnis (= das Backup-Repository). Fällt auf generische
+    .hbk-Suche zurück falls pool.hbk nicht gefunden wird.
+    Gibt {task_id: "98.7G"} zurück.
     """
     result = {}
     try:
         client = _ssh_connect()
-        # Alle .hbk Dateien/Verzeichnisse auf allen Volumes finden und Größe messen
-        cmd = r"find /volume* -maxdepth 8 -name '*.hbk' 2>/dev/null | xargs -I{} du -sh {} 2>/dev/null"
-        _, stdout, _ = client.exec_command(cmd, timeout=20)
+
+        # pool.hbk ist das eigentliche Datenverzeichnis von HyperBackup.
+        # Wir messen dessen Parent (das Repository), um alle Versionen zu erfassen.
+        cmd = (
+            "find /volume* -maxdepth 10 -name 'pool.hbk' 2>/dev/null"
+            " | while IFS= read -r p; do"
+            "   parent=$(dirname \"$p\");"
+            "   printf '%s\\t%s\\n' \"$(du -sh \"$parent\" 2>/dev/null | cut -f1)\" \"$parent\";"
+            " done"
+        )
+        _, stdout, _ = client.exec_command(cmd, timeout=40)
         lines = stdout.read().decode().strip().splitlines()
+
+        # Fallback: alle *.hbk-Verzeichnisse direkt messen wenn pool.hbk fehlt
+        if not lines:
+            cmd2 = r"find /volume* -maxdepth 8 -name '*.hbk' -type d 2>/dev/null | xargs -I{} du -sh {} 2>/dev/null"
+            _, stdout, _ = client.exec_command(cmd2, timeout=30)
+            lines = stdout.read().decode().strip().splitlines()
+
         client.close()
+
+        def _match(path: str, task: dict) -> bool:
+            p = path.lower()
+            name   = task.get("name", "").lower()
+            name_u = name.replace(" ", "_")
+            name_s = name.replace("_", " ")
+            return bool(name and (name in p or name_u in p or name_s in p))
 
         for line in lines:
             if "\t" not in line:
                 continue
             size, path = line.split("\t", 1)
+            if not size or size == "0":
+                continue
             for task in tasks:
-                target = task.get("target_id", "")
-                if target and target in path:
-                    result[task["task_id"]] = size
+                tid = task.get("task_id")
+                if tid in result:
+                    continue
+                if _match(path, task):
+                    result[tid] = size
+                    break
+
+        # Wenn nur 1 Task vorhanden und kein Match: ersten Treffer zuweisen
+        if len(tasks) == 1 and not result and lines:
+            parts = lines[0].split("\t", 1)
+            if len(parts) == 2 and parts[0]:
+                result[tasks[0]["task_id"]] = parts[0]
+
     except Exception:
         pass
     return result
