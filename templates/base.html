@@ -101,7 +101,10 @@
           <div class="notif-panel" id="notif-panel" style="display:none">
             <div class="notif-panel-header">
               <span>Benachrichtigungen</span>
-              <button onclick="markAllRead()" class="notif-read-all">Alle gelesen</button>
+              <div style="display:flex;gap:.4rem">
+                <button onclick="deleteAllNotifications()" class="notif-read-all" style="color:var(--red);opacity:.7">Alle löschen</button>
+                <button onclick="markAllRead()" class="notif-read-all">Alle gelesen</button>
+              </div>
             </div>
             <div id="notif-list"><div class="notif-empty">Keine Benachrichtigungen</div></div>
           </div>
@@ -179,13 +182,14 @@
                        : n.severity === 'info'  ? 'notif-dot-info'
                        :                          'notif-dot-warning';
           const ts = (n.timestamp || '').slice(5, 16).replace('T', ' ');
-          return `<div class="notif-item ${n.read ? '' : 'unread'}">
+          return `<div class="notif-item ${n.read ? '' : 'unread'}" id="notif-${n.id}">
             <span class="notif-dot ${dotCls}"></span>
             <div class="notif-body">
               <div class="notif-title">${n.title}</div>
               <div class="notif-msg">${n.message}</div>
               <div class="notif-time">${ts}</div>
             </div>
+            <button class="notif-del-btn" onclick="deleteNotification(${n.id})" title="Löschen">×</button>
           </div>`;
         }).join('');
       }).catch(() => {});
@@ -200,6 +204,22 @@
 
   function markAllRead() {
     fetch('/api/notifications/read-all', { method: 'POST' })
+      .then(() => loadNotifications()).catch(() => {});
+  }
+
+  function deleteNotification(id) {
+    fetch(`/api/notifications/${id}`, { method: 'DELETE' })
+      .then(() => {
+        const el = document.getElementById(`notif-${id}`);
+        if (el) el.remove();
+        loadNotifications();
+      }).catch(() => {});
+  }
+
+  function deleteAllNotifications() {
+    const items = document.querySelectorAll('.notif-item[id^="notif-"]');
+    const ids = [...items].map(el => parseInt(el.id.replace('notif-', '')));
+    Promise.all(ids.map(id => fetch(`/api/notifications/${id}`, { method: 'DELETE' })))
       .then(() => loadNotifications()).catch(() => {});
   }
 

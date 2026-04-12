@@ -106,23 +106,6 @@
   }
   .hidden-chip:hover { border-color: var(--cyan); color: var(--text); }
 
-  /* ── Topbar buttons ──────────────────────────────────────── */
-  .btn-topbar {
-    display: flex; align-items: center; gap: .4rem;
-    padding: .38rem .75rem; font-size: .78rem; font-weight: 500;
-    background: rgba(34,211,238,.1); border: 1px solid rgba(34,211,238,.25);
-    border-radius: var(--radius-sm); color: var(--cyan); cursor: pointer;
-    font-family: var(--font); transition: background .15s;
-  }
-  .btn-topbar:hover { background: rgba(34,211,238,.18); }
-  .btn-topbar.active {
-    background: rgba(34,211,238,.2); border-color: var(--cyan);
-  }
-  .btn-topbar-muted {
-    background: rgba(255,255,255,.04); border-color: var(--border); color: var(--text-muted);
-  }
-  .btn-topbar-muted:hover { background: rgba(255,255,255,.08); color: var(--text); }
-
   /* ── Stat card internals ─────────────────────────────────── */
   .stat-label  { font-size: .72rem; color: var(--text-muted); font-weight: 600;
                  text-transform: uppercase; letter-spacing: .05em; margin-bottom: .3rem; }
@@ -281,7 +264,7 @@
         <div class="widget-body"
              id="card-backup"
              hx-get="/api/backup/summary"
-             hx-trigger="load, every 60s"
+             hx-trigger="load, every 15s"
              hx-swap="innerHTML">
           <div class="text-muted text-small">Lade…</div>
         </div>
@@ -354,7 +337,7 @@
 
 <!-- Hidden widgets panel (only visible in edit mode) -->
 <div id="hidden-panel">
-  <div class="panel-label">Versteckte Widgets — klicken zum Einblenden</div>
+  <div class="panel-label">Widget hinzufügen</div>
   <div id="hidden-chips"></div>
 </div>
 
@@ -449,7 +432,7 @@ function toggleEditMode() {
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Fertig`
     : `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Layout`;
 
-  panel.style.display = editMode && hiddenWidgets.size > 0 ? 'block' : 'none';
+  panel.style.display = editMode ? 'block' : 'none';
   resetBtn.style.display = editMode ? 'inline-flex' : 'none';
 }
 
@@ -474,17 +457,24 @@ function showWidget(id) {
   localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hiddenWidgets]));
   saveLayout();
   updateHiddenPanel();
+  // Re-trigger HTMX for widgets that load on demand
+  const htmxEl = el.querySelector('[hx-get]');
+  if (htmxEl && window.htmx) htmx.trigger(htmxEl, 'load');
 }
 
 function updateHiddenPanel() {
   const panel = document.getElementById('hidden-panel');
   const chips = document.getElementById('hidden-chips');
-  chips.innerHTML = [...hiddenWidgets].map(id => `
-    <div class="hidden-chip" onclick="showWidget('${id}')">
-      <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      ${WIDGET_LABELS[id] || id}
-    </div>`).join('');
-  if (editMode) panel.style.display = hiddenWidgets.size > 0 ? 'block' : 'none';
+  if (hiddenWidgets.size > 0) {
+    chips.innerHTML = [...hiddenWidgets].map(id => `
+      <div class="hidden-chip" onclick="showWidget('${id}')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        ${WIDGET_LABELS[id] || id}
+      </div>`).join('');
+  } else {
+    chips.innerHTML = '<span style="font-size:.75rem;color:var(--text-dim);padding:.2rem 0">Alle Widgets sind sichtbar</span>';
+  }
+  if (editMode) panel.style.display = 'block';
 }
 
 // ── Animations ───────────────────────────────────────────────

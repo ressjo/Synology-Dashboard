@@ -42,6 +42,22 @@
     {% endif %}
   </div>
 
+  <!-- Fortschrittsbalken -->
+  <div class="backup-progress-wrap">
+    {% if s.is_running %}
+      <div class="progress-bar" style="height:6px">
+        {% if s.progress_pct is not none %}
+          <div class="progress-fill fill-warning" id="bkprog-{{ s.task_id }}" style="width:{{ s.progress_pct }}%;transition:width .5s ease"></div>
+        {% else %}
+          <div class="progress-fill fill-warning progress-indeterminate" id="bkprog-{{ s.task_id }}"></div>
+        {% endif %}
+      </div>
+      <div class="backup-state-label text-warning" id="bkprog-label-{{ s.task_id }}">
+        Backup läuft…{% if s.progress_pct is not none %} {{ s.progress_pct }}%{% endif %}
+      </div>
+    {% endif %}
+  </div>
+
   <div class="bksummary-meta">
     <div class="bksummary-item">
       <i data-feather="clock"></i>
@@ -59,6 +75,31 @@
 {% endif %}
 
 <script>
+{% if summaries | selectattr('is_running') | list %}
+(function() {
+  function pollProgress() {
+    fetch('/api/backup/progress')
+      .then(r => r.json())
+      .then(data => {
+        for (const [tid, info] of Object.entries(data)) {
+          const bar   = document.getElementById('bkprog-' + tid);
+          const label = document.getElementById('bkprog-label-' + tid);
+          if (!bar) continue;
+          if (info.progress != null) {
+            bar.style.width = info.progress + '%';
+            bar.classList.remove('progress-indeterminate');
+            if (label) label.textContent = 'Backup läuft… ' + info.progress + '%';
+          }
+        }
+      }).catch(() => {});
+  }
+  pollProgress();
+  const _bkTimer = setInterval(pollProgress, 4000);
+  // Timer aufräumen wenn Widget aus DOM entfernt wird
+  document.addEventListener('htmx:beforeSwap', () => clearInterval(_bkTimer), { once: true });
+})();
+{% endif %}
+
 function startBackup(taskId, btn) {
   if (!confirm('Backup jetzt starten?')) return;
   btn.disabled = true;

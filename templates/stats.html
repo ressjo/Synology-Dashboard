@@ -1,89 +1,278 @@
 {% extends "base.html" %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack.min.css"/>
+{% endblock %}
+
+{% block topbar_actions %}
+<button id="edit-stats-btn" class="btn-topbar" onclick="toggleEditMode()">
+  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+  Layout
+</button>
+<button id="reset-stats-btn" class="btn-topbar btn-topbar-muted" onclick="resetLayout()" title="Layout zurücksetzen" style="display:none">
+  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+  Zurücksetzen
+</button>
+{% endblock %}
+
 {% block content %}
+<style>
+  /* ── GridStack ───────────────────────────────────────────────── */
+  .grid-stack { background: transparent; }
+  .grid-stack-item-content { border-radius: var(--radius); overflow: hidden; }
+  .grid-stack-placeholder > .placeholder-content {
+    background: rgba(34,211,238,.06);
+    border: 1px dashed rgba(34,211,238,.3);
+    border-radius: var(--radius);
+  }
+  .grid-stack.edit-mode .grid-stack-item > .grid-stack-item-content { cursor: move; }
+  .ui-resizable-handle { opacity: 0; transition: opacity .2s; }
+  .edit-mode .ui-resizable-handle { opacity: 1 !important; }
+  .ui-resizable-se {
+    width: 16px; height: 16px; bottom: 4px; right: 4px;
+    background: rgba(34,211,238,.5); border-radius: 3px;
+  }
+
+  /* ── Grid cards ──────────────────────────────────────────────── */
+  .gs-card {
+    height: 100%; display: flex; flex-direction: column;
+    box-sizing: border-box; overflow: hidden;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1rem;
+  }
+  .gs-card.card-glow-cyan { border-color: rgba(34,211,238,.2); box-shadow: 0 0 20px rgba(34,211,238,.05); }
+  .gs-card.card-glow-purple { border-color: rgba(139,92,246,.2); box-shadow: 0 0 20px rgba(139,92,246,.05); }
+  .edit-mode .gs-card { border-color: rgba(34,211,238,.35); box-shadow: 0 0 0 1px rgba(34,211,238,.1); }
+  .gs-card-title {
+    font-size: .78rem; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .06em;
+    display: flex; align-items: center; gap: .5rem;
+    flex-shrink: 0; margin-bottom: .6rem;
+  }
+  .gs-card-title svg { width: 13px; height: 13px; opacity: .7; }
+  .gs-card-body { flex: 1; min-height: 0; overflow: auto; }
+  .gs-chart-wrap { position: relative; flex: 1; min-height: 0; margin-top: .5rem; }
+</style>
 
 <div class="page-header">
   <h1><i data-feather="bar-chart-2"></i> Statistiken</h1>
-  <div class="btn-group">
+  <div class="btn-group" id="history-btns">
     <button class="btn btn-ghost active" onclick="loadHistory(6, this)">6h</button>
     <button class="btn btn-ghost" onclick="loadHistory(24, this)">24h</button>
     <button class="btn btn-ghost" onclick="loadHistory(168, this)">7d</button>
   </div>
 </div>
 
-<!-- Disk Health / SMART -->
-<div class="card" id="disk-health-card">
-  <div class="section-title"><i data-feather="hard-drive"></i> Disk Health</div>
-  <div id="disk-health-content" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem">
-    <div class="text-muted text-small">Lade…</div>
-  </div>
-</div>
+<div class="grid-stack" id="stats-grid">
 
-<!-- Storage Growth / Forecast -->
-<div class="card card-glow-cyan">
-  <div class="section-title" style="margin-bottom:.75rem">
-    <i data-feather="trending-up"></i> Speicherplatzbelegung &amp; Prognose
-    <div class="btn-group" style="margin-left:auto">
-      <button class="btn btn-ghost active" onclick="loadStorageChart(168, this)">7d</button>
-      <button class="btn btn-ghost" onclick="loadStorageChart(720, this)">30d</button>
-      <button class="btn btn-ghost" onclick="loadStorageChart(2160, this)">90d</button>
+  <!-- Disk Health -->
+  <div class="grid-stack-item" gs-id="disk-health" gs-x="0" gs-y="0" gs-w="12" gs-h="5" gs-min-w="4" gs-min-h="3">
+    <div class="grid-stack-item-content">
+      <div class="gs-card" id="disk-health-card">
+        <div class="gs-card-title">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+          Disk Health
+        </div>
+        <div class="gs-card-body">
+          <div id="disk-health-content" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem">
+            <div class="text-muted text-small">Lade…</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
-  <!-- Growth summary numbers above chart -->
-  <div id="storage-growth-content" class="storage-growth-table">
-    <div class="text-muted" style="padding:.5rem 0">Lade…</div>
-  </div>
-  <!-- Chart -->
-  <div style="position:relative;height:260px;margin-top:1rem">
-    <canvas id="storageChart"></canvas>
-  </div>
-  <div style="display:flex;align-items:center;gap:1.25rem;margin-top:.5rem;font-size:.72rem;color:var(--text-dim)">
-    <span style="display:flex;align-items:center;gap:.35rem">
-      <span style="width:20px;height:2px;background:currentColor;display:inline-block"></span>
-      Belegung <span style="opacity:.6">(rechts, %)</span>
-    </span>
-    <span style="display:flex;align-items:center;gap:.35rem">
-      <span style="width:20px;height:2px;border-top:2px dashed currentColor;display:inline-block"></span>
-      Prognose <span style="opacity:.6">(links, GB)</span>
-    </span>
-  </div>
-</div>
 
-<div class="charts-grid">
-  <div class="card chart-card">
-    <h3>CPU Auslastung (%)</h3>
-    <canvas id="cpuChart"></canvas>
+  <!-- Speicherverbrauch -->
+  <div class="grid-stack-item" gs-id="storage-usage" gs-x="0" gs-y="5" gs-w="6" gs-h="9" gs-min-w="3" gs-min-h="5">
+    <div class="grid-stack-item-content">
+      <div class="gs-card card-glow-cyan">
+        <div class="gs-card-title">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          Speicherverbrauch
+          <div class="btn-group storage-time-selector" style="margin-left:auto">
+            <button class="btn btn-ghost active" onclick="loadStorageData(168, this)">7d</button>
+            <button class="btn btn-ghost" onclick="loadStorageData(720, this)">30d</button>
+            <button class="btn btn-ghost" onclick="loadStorageData(2160, this)">90d</button>
+          </div>
+        </div>
+        <div class="gs-chart-wrap">
+          <canvas id="storageUsageChart"></canvas>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="card chart-card">
-    <h3>RAM Auslastung (%)</h3>
-    <canvas id="ramChart"></canvas>
-  </div>
-  <div class="card chart-card">
-    <h3>System Temperatur (°C)</h3>
-    <canvas id="tempChart"></canvas>
-  </div>
-  <div class="card chart-card">
-    <h3>Netzwerk RX (KB/s)</h3>
-    <canvas id="netRxChart"></canvas>
-  </div>
-  <div class="card chart-card">
-    <h3>Netzwerk TX (KB/s)</h3>
-    <canvas id="netTxChart"></canvas>
-  </div>
-</div>
 
+  <!-- Speicherprognose & Zuwachs -->
+  <div class="grid-stack-item" gs-id="storage-forecast" gs-x="6" gs-y="5" gs-w="6" gs-h="9" gs-min-w="3" gs-min-h="5">
+    <div class="grid-stack-item-content">
+      <div class="gs-card card-glow-purple">
+        <div class="gs-card-title">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+          Speicherprognose &amp; Zuwachs
+        </div>
+        <div id="storage-growth-content" class="storage-growth-table" style="flex-shrink:0">
+          <div class="text-muted" style="padding:.5rem 0">Lade…</div>
+        </div>
+        <div class="gs-chart-wrap" style="min-height:80px">
+          <canvas id="storageForecastChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CPU Chart -->
+  <div class="grid-stack-item" gs-id="cpu-chart" gs-x="0" gs-y="14" gs-w="4" gs-h="6" gs-min-w="2" gs-min-h="4">
+    <div class="grid-stack-item-content">
+      <div class="gs-card">
+        <div class="gs-card-title">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="15" x2="22" y2="15"/></svg>
+          CPU Auslastung (%)
+        </div>
+        <div class="gs-chart-wrap">
+          <canvas id="cpuChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RAM Chart -->
+  <div class="grid-stack-item" gs-id="ram-chart" gs-x="4" gs-y="14" gs-w="4" gs-h="6" gs-min-w="2" gs-min-h="4">
+    <div class="grid-stack-item-content">
+      <div class="gs-card">
+        <div class="gs-card-title">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          RAM Auslastung (%)
+        </div>
+        <div class="gs-chart-wrap">
+          <canvas id="ramChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Temperatur Chart -->
+  <div class="grid-stack-item" gs-id="temp-chart" gs-x="8" gs-y="14" gs-w="4" gs-h="6" gs-min-w="2" gs-min-h="4">
+    <div class="grid-stack-item-content">
+      <div class="gs-card">
+        <div class="gs-card-title">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+          System Temperatur (°C)
+        </div>
+        <div class="gs-chart-wrap">
+          <canvas id="tempChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Netzwerk RX -->
+  <div class="grid-stack-item" gs-id="netrx-chart" gs-x="0" gs-y="20" gs-w="6" gs-h="6" gs-min-w="2" gs-min-h="4">
+    <div class="grid-stack-item-content">
+      <div class="gs-card">
+        <div class="gs-card-title">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Netzwerk RX (KB/s)
+        </div>
+        <div class="gs-chart-wrap">
+          <canvas id="netRxChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Netzwerk TX -->
+  <div class="grid-stack-item" gs-id="nettx-chart" gs-x="6" gs-y="20" gs-w="6" gs-h="6" gs-min-w="2" gs-min-h="4">
+    <div class="grid-stack-item-content">
+      <div class="gs-card">
+        <div class="gs-card-title">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Netzwerk TX (KB/s)
+        </div>
+        <div class="gs-chart-wrap">
+          <canvas id="netTxChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
 <script>
+// ── GridStack ────────────────────────────────────────────────
+const STATS_LAYOUT_KEY = 'stats-layout-v1';
+const CELL_HEIGHT = 55;
+const COL = 12;
+
+let statsGrid;
+let editMode = false;
+
+function initGrid() {
+  statsGrid = GridStack.init({
+    column: COL,
+    cellHeight: CELL_HEIGHT,
+    margin: 8,
+    animate: true,
+    float: false,
+    staticGrid: true,
+    resizable: { handles: 'se' },
+  }, '#stats-grid');
+
+  const saved = loadLayout();
+  if (saved) statsGrid.load(saved);
+
+  statsGrid.on('change', () => saveLayout());
+  statsGrid.on('resizestop', () => {
+    allCharts().forEach(c => c && c.resize());
+  });
+}
+
+function allCharts() {
+  return [cpuChart, ramChart, tempChart, netRxChart, netTxChart, storageUsageChart, storageForecastChart];
+}
+
+function saveLayout() {
+  localStorage.setItem(STATS_LAYOUT_KEY, JSON.stringify(statsGrid.save(false)));
+}
+function loadLayout() {
+  try {
+    const raw = localStorage.getItem(STATS_LAYOUT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function resetLayout() {
+  localStorage.removeItem(STATS_LAYOUT_KEY);
+  location.reload();
+}
+
+function toggleEditMode() {
+  editMode = !editMode;
+  const btn     = document.getElementById('edit-stats-btn');
+  const resetBtn = document.getElementById('reset-stats-btn');
+  const gridEl  = document.getElementById('stats-grid');
+
+  statsGrid.setStatic(!editMode);
+  gridEl.classList.toggle('edit-mode', editMode);
+  btn.classList.toggle('active', editMode);
+  btn.innerHTML = editMode
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Fertig`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Layout`;
+  resetBtn.style.display = editMode ? 'inline-flex' : 'none';
+}
+
+// ── Charts ───────────────────────────────────────────────────
 const chartDefaults = {
   type: "line",
   options: {
     responsive: true,
+    maintainAspectRatio: false,
     animation: false,
     plugins: { legend: { display: false } },
     scales: {
       x: {
-        ticks: { color: "#94a3b8", maxTicksLimit: 8, maxRotation: 0 },
+        ticks: { color: "#94a3b8", maxTicksLimit: 8, maxRotation: 0, font: { size: 10 } },
         grid: { color: "#1e293b" }
       },
       y: {
@@ -120,8 +309,6 @@ const tempChart  = makeChart("tempChart",  "#ef4444");
 const netRxChart = makeChart("netRxChart", "#22c55e");
 const netTxChart = makeChart("netTxChart", "#f59e0b");
 
-// Temperatur-Grenzlinien
-tempChart.options.plugins.annotation = {};
 tempChart.options.scales.y.min = 20;
 
 function updateChart(chart, labels, values) {
@@ -131,13 +318,13 @@ function updateChart(chart, labels, values) {
 }
 
 function loadHistory(hours, btn) {
-  document.querySelectorAll(".btn-group .btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll("#history-btns .btn").forEach(b => b.classList.remove("active"));
   if (btn) btn.classList.add("active");
 
   fetch(`/api/stats/history?hours=${hours}`)
     .then(r => r.json())
     .then(rows => {
-      const labels = rows.map(r => r.timestamp.slice(11, 16)); // HH:MM
+      const labels = rows.map(r => r.timestamp.slice(11, 16));
       updateChart(cpuChart,   labels, rows.map(r => r.cpu_usage));
       updateChart(ramChart,   labels, rows.map(r => r.memory_total > 0 ? Math.round(r.memory_used / r.memory_total * 100) : 0));
       updateChart(tempChart,  labels, rows.map(r => r.sys_temp));
@@ -146,9 +333,117 @@ function loadHistory(hours, btn) {
     });
 }
 
-loadHistory(6, document.querySelector(".btn-group .btn"));
+// ── Speicherverbrauch Chart ──────────────────────────────────
+const storageUsageChart = new Chart(
+  document.getElementById('storageUsageChart').getContext('2d'), {
+  type: 'line',
+  data: { labels: [], datasets: [] },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: true, labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } } },
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.parsed.y != null ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%` : null
+        }
+      }
+    },
+    scales: {
+      x: { ticks: { color: '#64748b', maxTicksLimit: 10, maxRotation: 0, font: { size: 10 } }, grid: { color: '#1e293b' } },
+      y: { min: 0, max: 100, ticks: { color: '#94a3b8', callback: v => v + '%' }, grid: { color: '#334155' } }
+    }
+  }
+});
 
-// ── Storage Growth ────────────────────────────────────────────
+// ── Speicherprognose Chart ───────────────────────────────────
+const storageForecastChart = new Chart(
+  document.getElementById('storageForecastChart').getContext('2d'), {
+  type: 'line',
+  data: { labels: [], datasets: [] },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: true, labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } } },
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.parsed.y != null ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} GB` : null
+        }
+      }
+    },
+    scales: {
+      x: { ticks: { color: '#64748b', maxTicksLimit: 10, maxRotation: 0, font: { size: 10 } }, grid: { color: '#1e293b' } },
+      y: { ticks: { color: '#94a3b8', callback: v => v + ' GB' }, grid: { color: '#334155' }, beginAtZero: false }
+    }
+  }
+});
+
+function loadStorageData(hours, btn) {
+  if (btn) {
+    document.querySelectorAll('.storage-time-selector .btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  fetch(`/api/stats/storage-history?hours=${hours}`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.volumes?.length) {
+        storageUsageChart.data.labels = [];
+        storageUsageChart.data.datasets = [];
+        storageUsageChart.update();
+        storageForecastChart.data.labels = [];
+        storageForecastChart.data.datasets = [];
+        storageForecastChart.update();
+        return;
+      }
+
+      storageUsageChart.data.labels = data.volumes[0].actual_labels;
+      storageUsageChart.data.datasets = data.volumes
+        .filter(vol => vol.total_gb > 0)
+        .map(vol => ({
+          label: vol.name,
+          data: vol.actual_gb.map(v => v != null ? Math.round(v / vol.total_gb * 1000) / 10 : null),
+          borderColor: vol.color,
+          backgroundColor: vol.color + '18',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0,
+          spanGaps: false,
+        }));
+      storageUsageChart.update();
+
+      const fLabels = data.volumes[0].forecast_labels;
+      if (fLabels?.length) {
+        storageForecastChart.data.labels = fLabels;
+        storageForecastChart.data.datasets = data.volumes
+          .filter(vol => vol.forecast_gb?.length)
+          .map(vol => ({
+            label: vol.name,
+            data: vol.forecast_gb,
+            borderColor: vol.color,
+            backgroundColor: vol.color + '18',
+            borderWidth: 2,
+            borderDash: [6, 4],
+            fill: true,
+            tension: 0.3,
+            pointRadius: 2,
+            spanGaps: false,
+          }));
+      } else {
+        storageForecastChart.data.labels = [];
+        storageForecastChart.data.datasets = [];
+      }
+      storageForecastChart.update();
+    })
+    .catch(() => {});
+}
+
+// ── Storage Growth Tabelle ───────────────────────────────────
 function fmtGrowth(gb) {
   if (gb === null || gb === undefined) return '—';
   const sign = gb >= 0 ? '+' : '';
@@ -162,9 +457,9 @@ function fmtDaily(gb) {
 function fmtForecast(days) {
   if (days === null || days === undefined) return '<span class="text-muted">kein Wachstum</span>';
   if (days > 3650) return '<span class="text-muted">> 10 Jahre</span>';
-  if (days > 365) return `<span class="text-ok">~${Math.round(days/365)} Jahre</span>`;
-  if (days > 60)  return `<span class="text-ok">~${Math.round(days/30)} Monate</span>`;
-  if (days > 14)  return `<span class="text-warning">~${days} Tage</span>`;
+  if (days > 365)  return `<span class="text-ok">~${Math.round(days/365)} Jahre</span>`;
+  if (days > 60)   return `<span class="text-ok">~${Math.round(days/30)} Monate</span>`;
+  if (days > 14)   return `<span class="text-warning">~${days} Tage</span>`;
   return `<span class="text-danger">~${days} Tage!</span>`;
 }
 
@@ -174,38 +469,25 @@ function loadStorageGrowth() {
     .then(data => {
       const el = document.getElementById('storage-growth-content');
       if (!data.length) {
-        el.innerHTML = '<div class="text-muted" style="padding:.5rem 0">Noch nicht genug Daten (mind. 7 Tage erforderlich)</div>';
+        el.innerHTML = '<div class="text-muted" style="padding:.5rem 0;font-size:.8rem">Noch nicht genug Daten (mind. 7 Tage)</div>';
         return;
       }
 
-      // Group by volume
       const volumes = {};
       data.forEach(row => {
         if (!volumes[row.volume]) volumes[row.volume] = {};
         volumes[row.volume][row.period_days] = row;
       });
 
-      let html = `<table class="growth-table">
-        <thead>
-          <tr>
-            <th>Volume</th>
-            <th>Belegt</th>
-            <th>Wachstum 7d</th>
-            <th>Wachstum 30d</th>
-            <th>Ø pro Tag</th>
-            <th>Prognose voll</th>
-          </tr>
-        </thead>
-        <tbody>`;
+      let html = `<table class="growth-table"><thead><tr>
+        <th>Volume</th><th>Belegt</th><th>7d</th><th>30d</th><th>Ø/Tag</th><th>Prognose voll</th>
+      </tr></thead><tbody>`;
 
       for (const [vol, periods] of Object.entries(volumes)) {
         const row7  = periods[7];
         const row30 = periods[30];
         const cur = row7 || row30;
-        // Prefer 30d for daily avg (more accurate), fallback to 7d
         const dailyRow = row30 || row7;
-        const forecastDays = dailyRow?.days_until_full;
-
         html += `<tr>
           <td class="mono">${vol}</td>
           <td>
@@ -215,7 +497,7 @@ function loadStorageGrowth() {
           <td class="mono ${row7?.growth_gb > 0 ? 'text-warning' : ''}">${row7 ? fmtGrowth(row7.growth_gb) : '—'}</td>
           <td class="mono ${row30?.growth_gb > 0 ? 'text-warning' : ''}">${row30 ? fmtGrowth(row30.growth_gb) : '—'}</td>
           <td class="mono">${dailyRow ? fmtDaily(dailyRow.daily_growth_gb) : '—'}</td>
-          <td>${fmtForecast(forecastDays)}</td>
+          <td>${fmtForecast(dailyRow?.days_until_full)}</td>
         </tr>`;
       }
 
@@ -224,116 +506,9 @@ function loadStorageGrowth() {
     })
     .catch(() => {
       document.getElementById('storage-growth-content').innerHTML =
-        '<div class="text-muted">Fehler beim Laden</div>';
+        '<div class="text-muted" style="font-size:.8rem">Fehler beim Laden</div>';
     });
 }
-
-loadStorageGrowth();
-
-// ── Storage Chart (Belegung % rechts + Prognose GB links) ────
-const storageChartCtx = document.getElementById('storageChart').getContext('2d');
-let storageChart = new Chart(storageChartCtx, {
-  type: 'line',
-  data: { labels: [], datasets: [] },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: false,
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: { display: true, labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } } },
-      tooltip: {
-        callbacks: {
-          label: ctx => {
-            if (ctx.parsed.y == null) return null;
-            return ctx.dataset.yAxisID === 'yPct'
-              ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`
-              : `${ctx.dataset.label}: ${ctx.parsed.y} GB`;
-          }
-        }
-      }
-    },
-    scales: {
-      x: {
-        ticks: { color: '#64748b', maxTicksLimit: 10, maxRotation: 0, font: { size: 10 } },
-        grid:  { color: '#1e293b' }
-      },
-      // Left axis — Prognose in GB
-      yGb: {
-        position: 'left',
-        ticks: { color: '#64748b', callback: v => v + ' GB' },
-        grid:  { color: '#334155' },
-        beginAtZero: false,
-      },
-      // Right axis — Belegung in %
-      yPct: {
-        position: 'right',
-        min: 0,
-        max: 100,
-        ticks: { color: '#94a3b8', callback: v => v + '%' },
-        grid:  { drawOnChartArea: false },
-      }
-    }
-  }
-});
-
-function loadStorageChart(hours, btn) {
-  if (btn) {
-    document.querySelectorAll('.card-glow-cyan .btn-group .btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  }
-  fetch(`/api/stats/storage-history?hours=${hours}`)
-    .then(r => r.json())
-    .then(data => {
-      if (!data.volumes?.length) {
-        storageChart.data.labels = [];
-        storageChart.data.datasets = [];
-        storageChart.update();
-        return;
-      }
-
-      storageChart.data.labels = data.labels;
-      const datasets = [];
-      data.volumes.forEach(vol => {
-        // Actual → rechte Achse als %
-        if (vol.total_gb > 0) {
-          datasets.push({
-            label: vol.name + ' (Belegung)',
-            data: vol.actual.map(v => v != null ? Math.round(v / vol.total_gb * 1000) / 10 : null),
-            borderColor: vol.color,
-            backgroundColor: vol.color + '18',
-            borderWidth: 2,
-            fill: true,
-            tension: 0.3,
-            pointRadius: 0,
-            spanGaps: false,
-            yAxisID: 'yPct',
-          });
-        }
-        // Prognose → linke Achse in GB (gestrichelt)
-        if (vol.forecast?.some(v => v != null)) {
-          datasets.push({
-            label: vol.name + ' (Prognose)',
-            data: vol.forecast,
-            borderColor: vol.color,
-            backgroundColor: 'transparent',
-            borderWidth: 1.5,
-            borderDash: [6, 4],
-            fill: false,
-            tension: 0.2,
-            pointRadius: 0,
-            spanGaps: false,
-            yAxisID: 'yGb',
-          });
-        }
-      });
-      storageChart.data.datasets = datasets;
-      storageChart.update();
-    })
-    .catch(() => {});
-}
-
-loadStorageChart(168);
 
 // ── Disk Health ───────────────────────────────────────────────
 function loadDiskHealth() {
@@ -344,15 +519,13 @@ function loadDiskHealth() {
       if (!disks.length) { el.innerHTML = '<div class="text-muted text-small">Keine Daten</div>'; return; }
 
       el.innerHTML = disks.map(d => {
-        const smartOk   = d.smart_status === 'normal';
-        const statusOk  = d.status === 'normal';
-        const tempCls   = d.temp >= 55 ? 'text-danger' : d.temp >= 45 ? 'text-warning' : 'text-ok';
-        const lifeCls   = d.remain_life != null
-          ? (d.remain_life < 10 ? 'text-danger' : d.remain_life < 30 ? 'text-warning' : 'text-ok')
-          : '';
-        const lifeFill  = d.remain_life != null
-          ? (d.remain_life < 10 ? 'fill-danger' : d.remain_life < 30 ? 'fill-warning' : 'fill-ok')
-          : 'fill-ok';
+        const smartOk  = d.smart_status === 'normal';
+        const statusOk = d.status === 'normal';
+        const tempCls  = d.temp >= 55 ? 'text-danger' : d.temp >= 45 ? 'text-warning' : 'text-ok';
+        const lifeCls  = d.remain_life != null
+          ? (d.remain_life < 10 ? 'text-danger' : d.remain_life < 30 ? 'text-warning' : 'text-ok') : '';
+        const lifeFill = d.remain_life != null
+          ? (d.remain_life < 10 ? 'fill-danger' : d.remain_life < 30 ? 'fill-warning' : 'fill-ok') : 'fill-ok';
 
         return `
           <div style="display:flex;flex-direction:column;gap:.55rem;padding:.75rem;background:rgba(0,0,0,.15);border-radius:var(--radius-sm);border:1px solid var(--border)">
@@ -364,17 +537,14 @@ function loadDiskHealth() {
               </span>
             </div>
             <div class="text-muted text-small">${d.model}${d.is_ssd ? ' · SSD' : ' · HDD'} · ${d.size_gb > 0 ? Math.round(d.size_gb) + ' GB' : ''}</div>
-
             <div style="display:flex;justify-content:space-between;font-size:.78rem">
               <span class="text-muted">Temperatur</span>
               <span class="mono ${tempCls}">${d.temp != null ? d.temp + ' °C' : '—'}</span>
             </div>
-
             <div style="display:flex;justify-content:space-between;font-size:.78rem">
               <span class="text-muted">SMART</span>
               <span class="${smartOk ? 'text-ok' : 'text-danger'}">${d.smart_status || '—'}</span>
             </div>
-
             ${d.remain_life != null ? `
             <div>
               <div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:.3rem">
@@ -391,6 +561,12 @@ function loadDiskHealth() {
     })
     .catch(() => {});
 }
+
+// ── Init ─────────────────────────────────────────────────────
+initGrid();
+loadHistory(6, document.querySelector("#history-btns .btn"));
+loadStorageData(168);
+loadStorageGrowth();
 loadDiskHealth();
 </script>
 {% endblock %}

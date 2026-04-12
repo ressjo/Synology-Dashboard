@@ -46,6 +46,9 @@ async def collect_stats():
 
         database.save_stats(cpu, mem_used, mem_total, disk_info, rx, tx, sys_temp)
         log.debug("Stats gespeichert: CPU=%.1f%%, RAM=%dMB/%dMB", cpu, mem_used // 1024 // 1024, mem_total // 1024 // 1024)
+
+        from app.anomaly import check_system_anomalies
+        check_system_anomalies(sys_temp, rx, tx, disk_info)
     except Exception as e:
         log.warning("Stats-Sammlung fehlgeschlagen: %s", e)
 

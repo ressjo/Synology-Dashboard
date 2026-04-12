@@ -45,32 +45,6 @@ def _ssh_connect() -> paramiko.SSHClient:
     return client
 
 
-def get_backup_sizes_ssh(tasks: list[dict]) -> dict[int, str]:
-    """
-    Liest Backup-Größen per SSH aus den HBK-Cache-Verzeichnissen.
-    Gibt {task_id: "3.1G"} zurück.
-    """
-    result = {}
-    try:
-        client = _ssh_connect()
-        # Alle .hbk Dateien/Verzeichnisse auf allen Volumes finden und Größe messen
-        cmd = r"find /volume* -maxdepth 8 -name '*.hbk' 2>/dev/null | xargs -I{} du -sh {} 2>/dev/null"
-        _, stdout, _ = client.exec_command(cmd, timeout=20)
-        lines = stdout.read().decode().strip().splitlines()
-        client.close()
-
-        for line in lines:
-            if "\t" not in line:
-                continue
-            size, path = line.split("\t", 1)
-            for task in tasks:
-                target = task.get("target_id", "")
-                if target and target in path:
-                    result[task["task_id"]] = size
-    except Exception:
-        pass
-    return result
-
 
 def _get_ssh() -> paramiko.SSHClient:
     """Gibt eine gecachte SSH-Verbindung zurück, stellt sie bei Bedarf neu her (thread-safe)."""

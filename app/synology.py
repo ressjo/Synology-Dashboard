@@ -240,6 +240,8 @@ async def get_task_detail(task_id: int) -> dict:
     return data.get("data", {})
 
 
+
+
 async def trigger_backup(task_id: int) -> bool:
     """HyperBackup Aufgabe starten"""
     data = await _authed_request({

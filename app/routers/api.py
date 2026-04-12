@@ -172,6 +172,10 @@ def storage_history(hours: int = 168):
             "actual":   combined_actual,
             "forecast": combined_forecast,
             "labels":   combined_labels,
+            "actual_labels":   actual_labels,
+            "actual_gb":       actual_gb,
+            "forecast_labels": forecast_labels,
+            "forecast_gb":     forecast_gb,
         })
 
     # Gemeinsame Labels (alle Volumes zusammenführen — normalerweise gleich)
@@ -192,6 +196,12 @@ def get_notifications():
 @router.post("/notifications/read-all")
 def read_all_notifications():
     database.mark_all_notifications_read()
+    return {"status": "ok"}
+
+
+@router.delete("/notifications/{notif_id}")
+def delete_notification(notif_id: int):
+    database.delete_notification(notif_id)
     return {"status": "ok"}
 
 
@@ -390,12 +400,70 @@ def _format_security_event(str_id: str, args: dict) -> str:
         return tpl
 
 
+
+
+def _fmt_duration(secs) -> str | None:
+    if not secs:
+        return None
+    s = int(secs)
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return f"{h}h {m}m"
+    if m:
+        return f"{m}m {sec}s"
+    return f"{sec}s"
+
+
+def _extract_progress(status: dict) -> int | None:
+    """Extrahiert Fortschritt 0-100 aus dem Synology Status-Dict."""
+    if not isinstance(status, dict):
+        return None
+    for key in ("progress", "percentage", "percent"):
+        v = status.get(key)
+        if isinstance(v, (int, float)) and 0 <= v <= 100:
+            return int(v)
+    p = status.get("progress")
+    if isinstance(p, dict):
+        for tk in ("total", "size_total", "total_size"):
+            for ck in ("current", "size_current", "current_size"):
+                total, cur = p.get(tk), p.get(ck)
+                if total and cur and int(total) > 0:
+                    return min(100, int(int(cur) / int(total) * 100))
+    total = status.get("total_size") or status.get("size_total")
+    cur   = status.get("current_size") or status.get("size_current")
+    if total and cur and int(total) > 0:
+        return min(100, int(int(cur) / int(total) * 100))
+    return None
+
+
+@router.get("/backup/progress")
+async def backup_progress():
+    """Laufende Backup-Fortschritte als JSON für Live-Polling."""
+    try:
+        tasks = await synology.get_backup_tasks()
+    except Exception:
+        return {}
+    statuses = await asyncio.gather(
+        *[synology.get_task_status(t["task_id"]) for t in tasks],
+        return_exceptions=True,
+    )
+    result = {}
+    for task, st in zip(tasks, statuses):
+        if not isinstance(st, dict) or st.get("status") != "backup":
+            continue
+        result[str(task["task_id"])] = {"progress": _extract_progress(st)}
+    return result
+
+
 @router.get("/backup/summary", response_class=HTMLResponse)
 async def backup_summary(request: Request):
     try:
         tasks = await synology.get_backup_tasks()
     except Exception:
         tasks = []
+
+    task_ids = [t["task_id"] for t in tasks]
 
     # Status + DB-Logs parallel
     results = await asyncio.gather(
@@ -414,11 +482,12 @@ async def backup_summary(request: Request):
         is_running = status.get("status") == "backup"
 
         summaries.append({
-            "name":       name,
-            "task_id":    tid,
-            "is_running": is_running,
-            "last_time":  last_run.get("timestamp"),   # aus backup_log
-            "last_status": last_run.get("status", ""), # "gestartet" / "fehler"
+            "name":         name,
+            "task_id":      tid,
+            "is_running":   is_running,
+            "progress_pct": _extract_progress(status) if is_running else None,
+            "last_time":    last_run.get("timestamp"),
+            "last_status":  last_run.get("status", ""),
         })
     summaries.sort(key=lambda x: x["task_id"])
 
@@ -438,7 +507,9 @@ async def backup_tasks(request: Request):
             {"request": request, "tasks": [], "sizes": {}, "statuses": {}, "error": str(e)},
         )
 
-    # Status aller Tasks parallel abfragen
+    task_ids = [t["task_id"] for t in tasks]
+
+    # Status + letzte Ergebnisse + DB-Logs parallel holen
     statuses = {}
     async def fetch_status(t):
         try:
@@ -446,11 +517,30 @@ async def backup_tasks(request: Request):
             statuses[t["task_id"]] = s
         except Exception:
             statuses[t["task_id"]] = {}
-    await asyncio.gather(*[fetch_status(t) for t in tasks])
+
+    gathered = await asyncio.gather(
+        asyncio.to_thread(database.get_last_backup_per_task),
+        *[fetch_status(t) for t in tasks],
+        return_exceptions=True,
+    )
+    last_runs = gathered[0] if isinstance(gathered[0], dict) else {}
+
+    progress_pcts = {
+        tid: _extract_progress(st)
+        for tid, st in statuses.items()
+        if st.get("status") == "backup"
+    }
 
     return templates.TemplateResponse(
         "partials/backup_tasks.html",
-        {"request": request, "tasks": tasks, "sizes": {}, "statuses": statuses, "error": None},
+        {
+            "request": request,
+            "tasks": tasks,
+            "statuses": statuses,
+            "progress_pcts": progress_pcts,
+            "last_runs": last_runs,
+            "error": None,
+        },
     )
 
 

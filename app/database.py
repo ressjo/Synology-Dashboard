@@ -151,9 +151,14 @@ def get_storage_growth() -> list[dict]:
                 if not old:
                     continue
 
-                growth_gb = round(cur["used_gb"] - old["used_gb"], 2)
+                used_gb  = round(cur["used"]  / 1e9, 2)
+                total_gb = round(cur["total"] / 1e9, 1)
+                old_used_gb = round(old["used"] / 1e9, 2)
+                pct = round(cur["used"] / cur["total"] * 100, 1) if cur["total"] > 0 else 0
+
+                growth_gb = round(used_gb - old_used_gb, 2)
                 daily_gb = round(growth_gb / days_elapsed, 3)
-                free_gb = cur["total_gb"] - cur["used_gb"]
+                free_gb = total_gb - used_gb
                 days_until_full = int(free_gb / daily_gb) if daily_gb > 0 else None
 
                 results.append({
@@ -161,9 +166,9 @@ def get_storage_growth() -> list[dict]:
                     "period_days": period_days,
                     "growth_gb": growth_gb,
                     "daily_growth_gb": daily_gb,
-                    "used_gb": cur["used_gb"],
-                    "total_gb": cur["total_gb"],
-                    "pct": cur["pct"],
+                    "used_gb": used_gb,
+                    "total_gb": total_gb,
+                    "pct": pct,
                     "days_until_full": days_until_full,
                     "since": old_row["timestamp"],
                 })
@@ -232,6 +237,12 @@ def mark_all_notifications_read() -> None:
         conn.commit()
 
 
+def delete_notification(id: int) -> None:
+    with get_db() as conn:
+        conn.execute("DELETE FROM notifications WHERE id=?", (id,))
+        conn.commit()
+
+
 def delete_old_notifications(days: int = 7) -> None:
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
@@ -282,10 +293,29 @@ def get_last_alert_time(name: str) -> datetime | None:
 def set_last_alert_time(name: str) -> None:
     with get_db() as conn:
         conn.execute(
-            "UPDATE container_baselines SET last_alert=? WHERE container_name=?",
-            (_now_local(), name),
+            "INSERT INTO container_baselines (container_name, last_alert) VALUES (?, ?) "
+            "ON CONFLICT(container_name) DO UPDATE SET last_alert=excluded.last_alert",
+            (name, _now_local()),
         )
         conn.commit()
+
+
+def get_disk_info_before(hours: float) -> dict | None:
+    """Gibt den jüngsten disk_info-Eintrag zurück der älter als N Stunden ist."""
+    cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT disk_info, timestamp FROM stats "
+            "WHERE timestamp <= ? AND disk_info IS NOT NULL "
+            "ORDER BY timestamp DESC LIMIT 1",
+            (cutoff,),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return {"disks": json.loads(row["disk_info"]), "timestamp": row["timestamp"]}
+    except Exception:
+        return None
 
 
 # ── Storage history for chart ─────────────────────────────────
