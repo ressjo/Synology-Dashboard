@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app import synology, docker_manager, database, paperless_client
-from app.hyperbackup import trigger_backup_ssh, get_top_processes, get_network_connections, get_memory_detail, get_nas_uptime, get_shared_folder_sizes, get_syslog, get_backup_sizes_ssh
+from app.hyperbackup import trigger_backup_ssh, get_top_processes, get_network_connections, get_memory_detail, get_nas_uptime, get_shared_folder_sizes, get_syslog
 from app.config import config
 
 templates = Jinja2Templates(directory="templates")
@@ -400,29 +400,6 @@ def _format_security_event(str_id: str, args: dict) -> str:
         return tpl
 
 
-def _fmt_bytes(n) -> str | None:
-    if not n:
-        return None
-    n = int(n)
-    if n >= 1_000_000_000_000:
-        return f"{n/1e12:.1f} TB"
-    if n >= 1_000_000_000:
-        return f"{n/1e9:.1f} GB"
-    if n >= 1_000_000:
-        return f"{n/1e6:.0f} MB"
-    return f"{n/1e3:.0f} KB"
-
-
-def _fmt_bytes_delta(n: int) -> str:
-    sign = "+" if n >= 0 else "−"
-    a = abs(n)
-    if a >= 1_000_000_000_000:
-        return f"{sign}{a/1e12:.1f} TB"
-    if a >= 1_000_000_000:
-        return f"{sign}{a/1e9:.1f} GB"
-    if a >= 1_000_000:
-        return f"{sign}{a/1e6:.0f} MB"
-    return f"{sign}{a/1e3:.0f} KB"
 
 
 def _fmt_duration(secs) -> str | None:
@@ -488,16 +465,14 @@ async def backup_summary(request: Request):
 
     task_ids = [t["task_id"] for t in tasks]
 
-    # Status + DB-Logs + letzte Ergebnisse parallel
+    # Status + DB-Logs parallel
     results = await asyncio.gather(
         asyncio.to_thread(database.get_last_backup_per_task),
-        synology.get_backup_last_results(task_ids),
         *[synology.get_task_status(t["task_id"]) for t in tasks],
         return_exceptions=True,
     )
-    last_runs    = results[0] if isinstance(results[0], dict) else {}
-    last_results = results[1] if isinstance(results[1], dict) else {}
-    status_list  = [r if isinstance(r, dict) else {} for r in results[2:]]
+    last_runs   = results[0] if isinstance(results[0], dict) else {}
+    status_list = [r if isinstance(r, dict) else {} for r in results[1:]]
 
     summaries = []
     for task, status in zip(tasks, status_list):
@@ -505,24 +480,14 @@ async def backup_summary(request: Request):
         tid        = task["task_id"]
         last_run   = last_runs.get(tid, {})
         is_running = status.get("status") == "backup"
-        api_list   = last_results.get(tid, [])
-        latest     = api_list[0] if api_list else {}
-        previous   = api_list[1] if len(api_list) > 1 else {}
-
-        delta = None
-        if latest.get("size") and previous.get("size"):
-            delta = _fmt_bytes_delta(int(latest["size"]) - int(previous["size"]))
 
         summaries.append({
-            "name":             name,
-            "task_id":          tid,
-            "is_running":       is_running,
-            "progress_pct":     _extract_progress(status) if is_running else None,
-            "last_time":        last_run.get("timestamp"),
-            "last_status":      last_run.get("status", ""),
-            "backup_size":      _fmt_bytes(latest.get("size")),
-            "transferred_size": _fmt_bytes(latest.get("transferred_size")),
-            "delta":            delta,
+            "name":         name,
+            "task_id":      tid,
+            "is_running":   is_running,
+            "progress_pct": _extract_progress(status) if is_running else None,
+            "last_time":    last_run.get("timestamp"),
+            "last_status":  last_run.get("status", ""),
         })
     summaries.sort(key=lambda x: x["task_id"])
 
@@ -554,37 +519,11 @@ async def backup_tasks(request: Request):
             statuses[t["task_id"]] = {}
 
     gathered = await asyncio.gather(
-        synology.get_backup_last_results(task_ids),
         asyncio.to_thread(database.get_last_backup_per_task),
         *[fetch_status(t) for t in tasks],
         return_exceptions=True,
     )
-    last_results = gathered[0] if isinstance(gathered[0], dict) else {}
-    last_runs    = gathered[1] if isinstance(gathered[1], dict) else {}
-
-    # Ergebnisse vorformatieren
-    results_fmt: dict[int, dict] = {}
-    for tid, res_list in last_results.items():
-        latest   = res_list[0] if res_list else {}
-        previous = res_list[1] if len(res_list) > 1 else {}
-        delta = None
-        if latest.get("size") and previous.get("size"):
-            delta = _fmt_bytes_delta(int(latest["size"]) - int(previous["size"]))
-        results_fmt[tid] = {
-            "size":             _fmt_bytes(latest.get("size")),
-            "transferred_size": _fmt_bytes(latest.get("transferred_size")),
-            "duration":         _fmt_duration(latest.get("elapsed_time")),
-            "delta":            delta,
-        }
-
-    # SSH-Fallback wenn API keine Größen liefert
-    has_sizes = any(r.get("size") for r in results_fmt.values())
-    ssh_sizes: dict[int, str] = {}
-    if not has_sizes:
-        try:
-            ssh_sizes = await asyncio.to_thread(get_backup_sizes_ssh, tasks)
-        except Exception:
-            pass
+    last_runs = gathered[0] if isinstance(gathered[0], dict) else {}
 
     progress_pcts = {
         tid: _extract_progress(st)
@@ -598,8 +537,6 @@ async def backup_tasks(request: Request):
             "request": request,
             "tasks": tasks,
             "statuses": statuses,
-            "results_fmt": results_fmt,
-            "ssh_sizes": ssh_sizes,
             "progress_pcts": progress_pcts,
             "last_runs": last_runs,
             "error": None,

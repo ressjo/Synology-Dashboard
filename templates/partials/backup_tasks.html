@@ -110,36 +110,6 @@
     </div>
   </div>
 
-  {% set res = results_fmt.get(tid, {}) %}
-  {% set ssh_size = ssh_sizes.get(tid) %}
-  {% if res.size or ssh_size or res.transferred_size or res.duration %}
-  <div class="backup-task-sizes">
-    {% if res.size %}
-      <span class="backup-size-chip">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
-        Gesamt: <strong>{{ res.size }}</strong>
-        {% if res.delta %}<span style="font-size:.7rem;color:{{ 'var(--amber)' if res.delta.startswith('+') else 'var(--green)' }};margin-left:.2rem">{{ res.delta }}</span>{% endif %}
-      </span>
-    {% elif ssh_size %}
-      <span class="backup-size-chip">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
-        Gesamt: <strong>{{ ssh_size }}</strong>
-      </span>
-    {% endif %}
-    {% if res.transferred_size %}
-      <span class="backup-size-chip">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 17 21 12 16 7"/><line x1="8" y1="12" x2="21" y2="12"/><polyline points="8 7 3 12 8 17"/></svg>
-        Übertragen: <strong>{{ res.transferred_size }}</strong>
-      </span>
-    {% endif %}
-    {% if res.duration %}
-      <span class="backup-size-chip">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        Dauer: <strong>{{ res.duration }}</strong>
-      </span>
-    {% endif %}
-  </div>
-  {% endif %}
 </div>
 {% endfor %}
 

@@ -68,23 +68,6 @@
         <span class="text-dim">–</span>
       {% endif %}
     </div>
-    {% if s.backup_size %}
-    <div class="bksummary-item">
-      <i data-feather="hard-drive"></i>
-      <span class="text-muted">Backup-Größe</span>
-      <span class="mono">{{ s.backup_size }}</span>
-      {% if s.delta %}
-        <span class="mono text-small" style="color:{{ 'var(--amber)' if s.delta.startswith('+') else 'var(--green)' }};opacity:.8">{{ s.delta }}</span>
-      {% endif %}
-    </div>
-    {% endif %}
-    {% if s.transferred_size %}
-    <div class="bksummary-item">
-      <i data-feather="upload"></i>
-      <span class="text-muted">Übertragen</span>
-      <span class="mono">{{ s.transferred_size }}</span>
-    </div>
-    {% endif %}
   </div>
 
 </div>
